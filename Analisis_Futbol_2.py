@@ -39,7 +39,7 @@ with st.sidebar:
 
     FOLDER = st.text_input(
         "📁 Carpeta de datos",
-        value="/content/drive/MyDrive/Colab Notebooks/Futbool/Premier"
+        value="."
     )
 
     if not os.path.exists(FOLDER):
