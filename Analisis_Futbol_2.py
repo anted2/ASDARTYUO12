@@ -849,6 +849,108 @@ def display_liga_stats(liga_df, standings, tiene, data_path):
 
 
 # ══════════════════════════════════════════════════════════════
+# NAVEGACIÓN CELULAR FIJA
+# ══════════════════════════════════════════════════════════════
+
+def sync_vista_from_url():
+    """Lee ?vista=N desde la URL para que los botones flotantes funcionen."""
+    try:
+        v = st.query_params.get("vista", None)
+        if isinstance(v, list):
+            v = v[0] if v else None
+        if v is not None:
+            idx = int(v)
+            if 0 <= idx <= 3:
+                st.session_state["vista_idx"] = idx
+    except Exception:
+        pass
+
+
+def set_vista_idx(idx):
+    """Guarda la vista actual y la sincroniza en la URL."""
+    idx = int(idx) % 4
+    st.session_state["vista_idx"] = idx
+    try:
+        st.query_params["vista"] = str(idx)
+    except Exception:
+        pass
+
+
+def render_sticky_mobile_nav(vista_idx, casos):
+    """Barra flotante fija para cambiar de caso sin volver arriba manualmente."""
+    prev_idx = (vista_idx - 1) % 4
+    next_idx = (vista_idx + 1) % 4
+    label = casos[vista_idx][0]
+    # Quitar emojis largos del texto visual y recortar para celular
+    short_label = label.replace("—", "-")
+    if len(short_label) > 42:
+        short_label = short_label[:39] + "..."
+
+    st.markdown(f"""
+    <style>
+      .mobile-floating-nav {{
+        position: fixed;
+        top: 3.2rem;
+        right: 0.55rem;
+        left: 0.55rem;
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        background: rgba(13, 17, 23, 0.96);
+        border: 1px solid rgba(0, 230, 118, 0.45);
+        border-radius: 999px;
+        padding: 0.42rem 0.48rem;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+        backdrop-filter: blur(8px);
+      }}
+      .mobile-floating-nav a {{
+        flex: 0 0 auto;
+        text-decoration: none !important;
+        color: #0d1117 !important;
+        background: #00e676;
+        border-radius: 999px;
+        padding: 0.42rem 0.72rem;
+        font-weight: 900;
+        font-size: 0.86rem;
+        line-height: 1;
+        white-space: nowrap;
+      }}
+      .mobile-floating-nav .mobile-nav-title {{
+        flex: 1 1 auto;
+        min-width: 0;
+        color: #d6ffe6;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }}
+      .mobile-floating-nav .mobile-nav-count {{
+        color: #8b949e;
+        font-size: 0.72rem;
+        font-weight: 700;
+        margin-left: 0.15rem;
+      }}
+      .mobile-nav-spacer {{ height: 3.2rem; }}
+      @media (min-width: 780px) {{
+        .mobile-floating-nav {{
+          left: auto;
+          width: min(520px, calc(100vw - 2rem));
+        }}
+      }}
+    </style>
+    <div class="mobile-floating-nav">
+      <a href="?vista={prev_idx}" target="_self">⬅️ Atrás</a>
+      <div class="mobile-nav-title">{short_label}<span class="mobile-nav-count"> {vista_idx+1}/4</span></div>
+      <a href="?vista={next_idx}" target="_self">Next ➡️</a>
+    </div>
+    <div class="mobile-nav-spacer"></div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════
 
@@ -916,6 +1018,7 @@ with st.sidebar:
 
     if "vista_idx" not in st.session_state:
         st.session_state["vista_idx"] = 0
+    sync_vista_from_url()
 
     VISTA_LABELS_SIDE = [
         "🏠 Local general",
@@ -929,10 +1032,12 @@ with st.sidebar:
         nav_prev, nav_next = st.columns(2)
         with nav_prev:
             if st.button("⬅️ Atrás", key="side_prev", use_container_width=True):
-                st.session_state["vista_idx"] = (st.session_state["vista_idx"] - 1) % 4
+                set_vista_idx(st.session_state["vista_idx"] - 1)
+                st.rerun()
         with nav_next:
             if st.button("Next ➡️", key="side_next", use_container_width=True):
-                st.session_state["vista_idx"] = (st.session_state["vista_idx"] + 1) % 4
+                set_vista_idx(st.session_state["vista_idx"] + 1)
+                st.rerun()
 
         vista_idx_side = st.selectbox(
             "Saltar a vista",
@@ -941,7 +1046,7 @@ with st.sidebar:
             format_func=lambda i: VISTA_LABELS_SIDE[i],
             key="vista_idx_selector",
         )
-        st.session_state["vista_idx"] = int(vista_idx_side)
+        set_vista_idx(vista_idx_side)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1049,19 +1154,9 @@ if MODO_CELULAR:
     vista_idx = max(0, min(3, vista_idx))
     titulo, df_case, team_case, es_visitante_case = casos[vista_idx]
 
+    render_sticky_mobile_nav(vista_idx, casos)
     st.markdown(f"### {titulo}")
-
-    main_prev, main_next = st.columns(2)
-    with main_prev:
-        if st.button("⬅️ Atrás", key="main_prev", use_container_width=True):
-            st.session_state["vista_idx"] = (vista_idx - 1) % 4
-            st.rerun()
-    with main_next:
-        if st.button("Next ➡️", key="main_next", use_container_width=True):
-            st.session_state["vista_idx"] = (vista_idx + 1) % 4
-            st.rerun()
-
-    st.caption("📱 Vista celular: cambia de vista con el selector del menú izquierdo o con Atrás/Next. En PC puedes volver a la vista de pestañas desde el sidebar.")
+    st.caption("📱 Vista celular: la barra Atrás/Next queda fija arriba mientras haces scroll. También puedes saltar de vista desde el menú izquierdo.")
     display_caso(df_case, team_case, es_visitante_case, tiene)
 
 else:
