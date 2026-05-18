@@ -905,8 +905,14 @@ with st.sidebar:
     analizar = st.button("🔍 Analizar partido", type="primary", use_container_width=True)
 
     st.markdown("---")
-    MODO_CELULAR = st.checkbox("📱 Modo celular", value=False)
-    st.caption("Actívalo para usar una sola pantalla con selector, Atrás y Next.")
+    vista_uso = st.radio(
+        "🖥️/📱 Vista de uso",
+        ["🖥️ PC / escritorio", "📱 Celular"],
+        index=0,
+        help="PC mantiene las pestañas. Celular usa una sola pantalla con Atrás / Next."
+    )
+    MODO_CELULAR = vista_uso.startswith("📱")
+    st.caption("La misma app funciona en ambos: usa PC en computadora y Celular en teléfono.")
 
     if "vista_idx" not in st.session_state:
         st.session_state["vista_idx"] = 0
@@ -1035,8 +1041,9 @@ casos = [
     (f"🎯 {AWAY_TEAM} VISITA — {ctx_v_label[contexto_v]} ({len(df_c4)}pj)", df_c4, AWAY_TEAM, True),
 ]
 
-# En escritorio se mantienen las pestañas.
-# En celular se muestra una sola vista por pantalla, controlada desde el sidebar.
+# La misma app tiene dos vistas:
+# - PC / escritorio: mantiene las pestañas horizontales.
+# - Celular: muestra una sola vista por pantalla con Atrás / Next.
 if MODO_CELULAR:
     vista_idx = int(st.session_state.get("vista_idx", 0))
     vista_idx = max(0, min(3, vista_idx))
@@ -1054,7 +1061,7 @@ if MODO_CELULAR:
             st.session_state["vista_idx"] = (vista_idx + 1) % 4
             st.rerun()
 
-    st.caption("📱 Modo celular: cambia de vista con el selector del menú izquierdo o con Atrás/Next.")
+    st.caption("📱 Vista celular: cambia de vista con el selector del menú izquierdo o con Atrás/Next. En PC puedes volver a la vista de pestañas desde el sidebar.")
     display_caso(df_case, team_case, es_visitante_case, tiene)
 
 else:
