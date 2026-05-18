@@ -155,8 +155,6 @@ def load_and_process(data_path):
     df["AwayGK_Saves"] = df["away_goalkeeper_saves"]
 
     # ── Atajadas inferidas: SOT rival − goles rival = atajadas portero ──
-    # Se calculan SIEMPRE; si hay datos reales (HGS/AGS) los usamos,
-    # si no, las inferidas son la mejor aproximación disponible.
     home_sot = pd.to_numeric(df["away_shots_on_target"], errors='coerce')
     away_sot = pd.to_numeric(df["home_shots_on_target"], errors='coerce')
     home_g   = pd.to_numeric(df["away_goals"], errors='coerce')
@@ -213,7 +211,6 @@ def build_liga_stats(df_path):
     Construye ranking de todos los equipos por métricas promedio
     (perspectiva unificada: home + away).
     """
-    # Recargar para no depender de objetos cacheados de otra función
     df_raw = pd.read_csv(df_path, encoding="utf-8")
     FORMATO_NUEVO = "HomeTeam" in df_raw.columns
     df = normalizar_df(df_raw, FORMATO_NUEVO)
@@ -849,7 +846,7 @@ def display_liga_stats(liga_df, standings, tiene, data_path):
 
 
 # ══════════════════════════════════════════════════════════════
-# NAVEGACIÓN CELULAR FIJA
+# NAVEGACIÓN CELULAR FIJA CON NÚMEROS 1-2-3-4
 # ══════════════════════════════════════════════════════════════
 
 def sync_vista_from_url():
@@ -877,74 +874,70 @@ def set_vista_idx(idx):
 
 
 def render_sticky_mobile_nav(vista_idx, casos):
-    """Barra flotante fija para cambiar de caso sin volver arriba manualmente."""
-    prev_idx = (vista_idx - 1) % 4
-    next_idx = (vista_idx + 1) % 4
-    label = casos[vista_idx][0]
-    # Quitar emojis largos del texto visual y recortar para celular
-    short_label = label.replace("—", "-")
-    if len(short_label) > 42:
-        short_label = short_label[:39] + "..."
-
+    """Barra flotante fija con números 1-2-3-4 para cambiar de caso."""
+    labels = ["Local General", "Local Contexto", "Visitante General", "Visitante Contexto"]
+    
     st.markdown(f"""
     <style>
-      .mobile-floating-nav {{
+    .mobile-floating-nav {{
         position: fixed;
-        top: 3.2rem;
-        right: 0.55rem;
-        left: 0.55rem;
+        top: 3.8rem;
+        left: 50%;
+        transform: translateX(-50%);
         z-index: 999999;
+        background: rgba(15, 23, 35, 0.98);
+        border: 2px solid #00e676;
+        border-radius: 50px;
+        padding: 8px 12px;
+        box-shadow: 0 10px 35px rgba(0,0,0,0.6);
+        backdrop-filter: blur(12px);
         display: flex;
         align-items: center;
-        gap: 0.45rem;
-        background: rgba(13, 17, 23, 0.96);
-        border: 1px solid rgba(0, 230, 118, 0.45);
-        border-radius: 999px;
-        padding: 0.42rem 0.48rem;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-        backdrop-filter: blur(8px);
-      }}
-      .mobile-floating-nav a {{
-        flex: 0 0 auto;
-        text-decoration: none !important;
-        color: #0d1117 !important;
-        background: #00e676;
-        border-radius: 999px;
-        padding: 0.42rem 0.72rem;
+        gap: 6px;
+        width: 92%;
+        max-width: 380px;
+    }}
+    .nav-number {{
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         font-weight: 900;
-        font-size: 0.86rem;
-        line-height: 1;
-        white-space: nowrap;
-      }}
-      .mobile-floating-nav .mobile-nav-title {{
-        flex: 1 1 auto;
-        min-width: 0;
-        color: #d6ffe6;
-        font-size: 0.78rem;
-        font-weight: 700;
-        text-align: center;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }}
-      .mobile-floating-nav .mobile-nav-count {{
-        color: #8b949e;
-        font-size: 0.72rem;
-        font-weight: 700;
-        margin-left: 0.15rem;
-      }}
-      .mobile-nav-spacer {{ height: 3.2rem; }}
-      @media (min-width: 780px) {{
-        .mobile-floating-nav {{
-          left: auto;
-          width: min(520px, calc(100vw - 2rem));
-        }}
-      }}
+        font-size: 1.1rem;
+        border-radius: 50%;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+    }}
+    .nav-number-active {{
+        background: #00e676 !important;
+        color: #0d1117 !important;
+        box-shadow: 0 0 0 4px rgba(0, 230, 118, 0.3);
+    }}
+    .nav-number-inactive {{
+        background: #1f2937;
+        color: #9ca3af;
+        border: 1px solid #374151;
+    }}
+    .mobile-nav-spacer {{ height: 78px; }}
     </style>
+
     <div class="mobile-floating-nav">
-      <a href="?vista={prev_idx}" target="_self">⬅️ Atrás</a>
-      <div class="mobile-nav-title">{short_label}<span class="mobile-nav-count"> {vista_idx+1}/4</span></div>
-      <a href="?vista={next_idx}" target="_self">Next ➡️</a>
+    """, unsafe_allow_html=True)
+
+    for i in range(4):
+        active = "nav-number-active" if i == vista_idx else "nav-number-inactive"
+        st.markdown(f"""
+        <a href="?vista={i}" target="_self" class="nav-number {active}">
+            {i+1}
+        </a>
+        """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+        <div style="margin-left: 12px; color:#9ca3af; font-size:0.82rem; font-weight:600;">
+            {labels[vista_idx]}
+        </div>
     </div>
     <div class="mobile-nav-spacer"></div>
     """, unsafe_allow_html=True)
@@ -1011,7 +1004,7 @@ with st.sidebar:
         "🖥️/📱 Vista de uso",
         ["🖥️ PC / escritorio", "📱 Celular"],
         index=0,
-        help="PC mantiene las pestañas. Celular usa una sola pantalla con Atrás / Next."
+        help="PC mantiene las pestañas. Celular usa una sola pantalla con números 1-4 fijos arriba."
     )
     MODO_CELULAR = vista_uso.startswith("📱")
     st.caption("La misma app funciona en ambos: usa PC en computadora y Celular en teléfono.")
@@ -1146,17 +1139,15 @@ casos = [
     (f"🎯 {AWAY_TEAM} VISITA — {ctx_v_label[contexto_v]} ({len(df_c4)}pj)", df_c4, AWAY_TEAM, True),
 ]
 
-# La misma app tiene dos vistas:
-# - PC / escritorio: mantiene las pestañas horizontales.
-# - Celular: muestra una sola vista por pantalla con Atrás / Next.
 if MODO_CELULAR:
     vista_idx = int(st.session_state.get("vista_idx", 0))
     vista_idx = max(0, min(3, vista_idx))
     titulo, df_case, team_case, es_visitante_case = casos[vista_idx]
 
     render_sticky_mobile_nav(vista_idx, casos)
+    
     st.markdown(f"### {titulo}")
-    st.caption("📱 Vista celular: la barra Atrás/Next queda fija arriba mientras haces scroll. También puedes saltar de vista desde el menú izquierdo.")
+    st.caption("📱 Usa los números 1-4 para cambiar rápidamente de vista")
     display_caso(df_case, team_case, es_visitante_case, tiene)
 
 else:
