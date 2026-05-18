@@ -155,6 +155,8 @@ def load_and_process(data_path):
     df["AwayGK_Saves"] = df["away_goalkeeper_saves"]
 
     # ── Atajadas inferidas: SOT rival − goles rival = atajadas portero ──
+    # Se calculan SIEMPRE; si hay datos reales (HGS/AGS) los usamos,
+    # si no, las inferidas son la mejor aproximación disponible.
     home_sot = pd.to_numeric(df["away_shots_on_target"], errors='coerce')
     away_sot = pd.to_numeric(df["home_shots_on_target"], errors='coerce')
     home_g   = pd.to_numeric(df["away_goals"], errors='coerce')
@@ -211,6 +213,7 @@ def build_liga_stats(df_path):
     Construye ranking de todos los equipos por métricas promedio
     (perspectiva unificada: home + away).
     """
+    # Recargar para no depender de objetos cacheados de otra función
     df_raw = pd.read_csv(df_path, encoding="utf-8")
     FORMATO_NUEVO = "HomeTeam" in df_raw.columns
     df = normalizar_df(df_raw, FORMATO_NUEVO)
@@ -846,104 +849,6 @@ def display_liga_stats(liga_df, standings, tiene, data_path):
 
 
 # ══════════════════════════════════════════════════════════════
-# NAVEGACIÓN CELULAR FIJA CON NÚMEROS 1-2-3-4
-# ══════════════════════════════════════════════════════════════
-
-def sync_vista_from_url():
-    """Lee ?vista=N desde la URL para que los botones flotantes funcionen."""
-    try:
-        v = st.query_params.get("vista", None)
-        if isinstance(v, list):
-            v = v[0] if v else None
-        if v is not None:
-            idx = int(v)
-            if 0 <= idx <= 3:
-                st.session_state["vista_idx"] = idx
-    except Exception:
-        pass
-
-
-def set_vista_idx(idx):
-    """Guarda la vista actual y la sincroniza en la URL."""
-    idx = int(idx) % 4
-    st.session_state["vista_idx"] = idx
-    try:
-        st.query_params["vista"] = str(idx)
-    except Exception:
-        pass
-
-
-def render_sticky_mobile_nav(vista_idx, casos):
-    """Barra flotante fija con números 1-2-3-4 para cambiar de caso."""
-    labels = ["Local General", "Local Contexto", "Visitante General", "Visitante Contexto"]
-    
-    st.markdown(f"""
-    <style>
-    .mobile-floating-nav {{
-        position: fixed;
-        top: 3.8rem;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 999999;
-        background: rgba(15, 23, 35, 0.98);
-        border: 2px solid #00e676;
-        border-radius: 50px;
-        padding: 8px 12px;
-        box-shadow: 0 10px 35px rgba(0,0,0,0.6);
-        backdrop-filter: blur(12px);
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        width: 92%;
-        max-width: 380px;
-    }}
-    .nav-number {{
-        width: 42px;
-        height: 42px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 900;
-        font-size: 1.1rem;
-        border-radius: 50%;
-        cursor: pointer;
-        text-decoration: none;
-        transition: all 0.2s;
-    }}
-    .nav-number-active {{
-        background: #00e676 !important;
-        color: #0d1117 !important;
-        box-shadow: 0 0 0 4px rgba(0, 230, 118, 0.3);
-    }}
-    .nav-number-inactive {{
-        background: #1f2937;
-        color: #9ca3af;
-        border: 1px solid #374151;
-    }}
-    .mobile-nav-spacer {{ height: 78px; }}
-    </style>
-
-    <div class="mobile-floating-nav">
-    """, unsafe_allow_html=True)
-
-    for i in range(4):
-        active = "nav-number-active" if i == vista_idx else "nav-number-inactive"
-        st.markdown(f"""
-        <a href="?vista={i}" target="_self" class="nav-number {active}">
-            {i+1}
-        </a>
-        """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-        <div style="margin-left: 12px; color:#9ca3af; font-size:0.82rem; font-weight:600;">
-            {labels[vista_idx]}
-        </div>
-    </div>
-    <div class="mobile-nav-spacer"></div>
-    """, unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════
 
@@ -1004,14 +909,13 @@ with st.sidebar:
         "🖥️/📱 Vista de uso",
         ["🖥️ PC / escritorio", "📱 Celular"],
         index=0,
-        help="PC mantiene las pestañas. Celular usa una sola pantalla con números 1-4 fijos arriba."
+        help="PC mantiene las pestañas. Celular usa una sola pantalla con Atrás / Next."
     )
     MODO_CELULAR = vista_uso.startswith("📱")
     st.caption("La misma app funciona en ambos: usa PC en computadora y Celular en teléfono.")
 
     if "vista_idx" not in st.session_state:
         st.session_state["vista_idx"] = 0
-    sync_vista_from_url()
 
     VISTA_LABELS_SIDE = [
         "🏠 Local general",
@@ -1025,12 +929,10 @@ with st.sidebar:
         nav_prev, nav_next = st.columns(2)
         with nav_prev:
             if st.button("⬅️ Atrás", key="side_prev", use_container_width=True):
-                set_vista_idx(st.session_state["vista_idx"] - 1)
-                st.rerun()
+                st.session_state["vista_idx"] = (st.session_state["vista_idx"] - 1) % 4
         with nav_next:
             if st.button("Next ➡️", key="side_next", use_container_width=True):
-                set_vista_idx(st.session_state["vista_idx"] + 1)
-                st.rerun()
+                st.session_state["vista_idx"] = (st.session_state["vista_idx"] + 1) % 4
 
         vista_idx_side = st.selectbox(
             "Saltar a vista",
@@ -1039,7 +941,7 @@ with st.sidebar:
             format_func=lambda i: VISTA_LABELS_SIDE[i],
             key="vista_idx_selector",
         )
-        set_vista_idx(vista_idx_side)
+        st.session_state["vista_idx"] = int(vista_idx_side)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1139,15 +1041,27 @@ casos = [
     (f"🎯 {AWAY_TEAM} VISITA — {ctx_v_label[contexto_v]} ({len(df_c4)}pj)", df_c4, AWAY_TEAM, True),
 ]
 
+# La misma app tiene dos vistas:
+# - PC / escritorio: mantiene las pestañas horizontales.
+# - Celular: muestra una sola vista por pantalla con Atrás / Next.
 if MODO_CELULAR:
     vista_idx = int(st.session_state.get("vista_idx", 0))
     vista_idx = max(0, min(3, vista_idx))
     titulo, df_case, team_case, es_visitante_case = casos[vista_idx]
 
-    render_sticky_mobile_nav(vista_idx, casos)
-    
     st.markdown(f"### {titulo}")
-    st.caption("📱 Usa los números 1-4 para cambiar rápidamente de vista")
+
+    main_prev, main_next = st.columns(2)
+    with main_prev:
+        if st.button("⬅️ Atrás", key="main_prev", use_container_width=True):
+            st.session_state["vista_idx"] = (vista_idx - 1) % 4
+            st.rerun()
+    with main_next:
+        if st.button("Next ➡️", key="main_next", use_container_width=True):
+            st.session_state["vista_idx"] = (vista_idx + 1) % 4
+            st.rerun()
+
+    st.caption("📱 Vista celular: cambia de vista con el selector del menú izquierdo o con Atrás/Next. En PC puedes volver a la vista de pestañas desde el sidebar.")
     display_caso(df_case, team_case, es_visitante_case, tiene)
 
 else:
