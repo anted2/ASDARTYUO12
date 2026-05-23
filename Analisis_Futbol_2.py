@@ -2,6 +2,7 @@
 # ─── CORRER  : python -m streamlit run Analisis_Futbol_2.py
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import os
@@ -154,9 +155,6 @@ def load_and_process(data_path):
     df["HomeGK_Saves"] = df["home_goalkeeper_saves"]
     df["AwayGK_Saves"] = df["away_goalkeeper_saves"]
 
-    # ── Atajadas inferidas: SOT rival − goles rival = atajadas portero ──
-    # Se calculan SIEMPRE; si hay datos reales (HGS/AGS) los usamos,
-    # si no, las inferidas son la mejor aproximación disponible.
     home_sot = pd.to_numeric(df["away_shots_on_target"], errors='coerce')
     away_sot = pd.to_numeric(df["home_shots_on_target"], errors='coerce')
     home_g   = pd.to_numeric(df["away_goals"], errors='coerce')
@@ -164,7 +162,6 @@ def load_and_process(data_path):
     df["home_inferred_saves"] = (home_sot - home_g).clip(lower=0)
     df["away_inferred_saves"] = (away_sot - away_g).clip(lower=0)
 
-    # Usar inferidas si no hay reales
     if df["HomeGK_Saves"].isna().all():
         df["HomeGK_Saves"] = df["home_inferred_saves"]
         df["AwayGK_Saves"] = df["away_inferred_saves"]
@@ -209,11 +206,6 @@ def load_and_process(data_path):
 
 @st.cache_data(show_spinner=False)
 def build_liga_stats(df_path):
-    """
-    Construye ranking de todos los equipos por métricas promedio
-    (perspectiva unificada: home + away).
-    """
-    # Recargar para no depender de objetos cacheados de otra función
     df_raw = pd.read_csv(df_path, encoding="utf-8")
     FORMATO_NUEVO = "HomeTeam" in df_raw.columns
     df = normalizar_df(df_raw, FORMATO_NUEVO)
@@ -307,7 +299,6 @@ def over_stat(serie, umbral):
 
 
 def detect_outliers_iqr(serie):
-    """Retorna máscara booleana de outliers usando método IQR × 1.5."""
     s = pd.to_numeric(serie, errors='coerce')
     valid = s.dropna()
     if len(valid) < 5:
@@ -397,7 +388,7 @@ def build_match_df(df_filt, tiene):
         ghl=int(r["home_goals"]) if pd.notna(r["home_goals"]) else 0
         gha=int(r["away_goals"]) if pd.notna(r["away_goals"]) else 0
         ftr=r.get("FTR","")
-        res="✅ Ganó" if ftr=="H" else ("❌ Perdió" if ftr=="A" else "🟡 Empate")
+        res="Gano" if ftr=="H" else ("Perdio" if ftr=="A" else "Empate")
         row={
             "Fecha":   r["fecha"].strftime("%Y-%m-%d") if pd.notna(r["fecha"]) else "N/D",
             "Rival":   str(r["away"]),
@@ -409,9 +400,9 @@ def build_match_df(df_filt, tiene):
         }
         if tiene["corners"]:
             hc=r.get("home_corner_kicks",np.nan); ac=r.get("away_corner_kicks",np.nan)
-            row["Cór.L"]=str(int(hc)) if pd.notna(hc) else "-"
-            row["Cór.V"]=str(int(ac)) if pd.notna(ac) else "-"
-            row["Cór.Tot"]=str(int(hc+ac)) if pd.notna(hc) and pd.notna(ac) else "-"
+            row["Cor.L"]=str(int(hc)) if pd.notna(hc) else "-"
+            row["Cor.V"]=str(int(ac)) if pd.notna(ac) else "-"
+            row["Cor.Tot"]=str(int(hc+ac)) if pd.notna(hc) and pd.notna(ac) else "-"
         if tiene["remates"]:
             hrt=r.get("home_total_shots",np.nan); art=r.get("away_total_shots",np.nan)
             hta=r.get("home_shots_on_target",np.nan); ata=r.get("away_shots_on_target",np.nan)
@@ -434,14 +425,70 @@ def build_match_df(df_filt, tiene):
 
 
 # ══════════════════════════════════════════════════════════════
+# BOTÓN COPIAR TODO — 4 TABLAS
+# ══════════════════════════════════════════════════════════════
+
+def copy_all_button(casos_data, tiene):
+    """
+    Arma las 4 tablas de historial en texto TSV y las pone
+    en un botón que las copia al portapapeles de una sola vez.
+    Pegar en Excel / Google Sheets mantiene las columnas separadas.
+    """
+    lines = []
+    for titulo, df_filt, team_name, es_visitante in casos_data:
+        lines.append(f"=== {titulo} ===")
+        if df_filt is None or df_filt.empty:
+            lines.append("Sin partidos en este contexto")
+            lines.append("")
+            continue
+        df_use = swap_visitante(df_filt.copy()) if es_visitante else df_filt.copy()
+        match_df = build_match_df(df_use, tiene)
+        lines.append(match_df.to_csv(sep="\t", index=False))
+        lines.append("")   # línea en blanco entre secciones
+
+    full_text = "\n".join(lines)
+
+    # Escapar para JS template literal (backtick, $, backslash)
+    safe = (full_text
+            .replace("\\", "\\\\")
+            .replace("`",  "\\`")
+            .replace("$",  "\\$"))
+
+    components.html(f"""
+    <button id="cpbtn" onclick="
+        navigator.clipboard.writeText(`{safe}`)
+          .then(()=>{{
+            document.getElementById('cpbtn').innerText = '✅  ¡Copiado! — pega en Excel o Google Sheets';
+            setTimeout(()=>{{
+              document.getElementById('cpbtn').innerText = '📋  Copiar todo (4 tablas historial)';
+            }}, 3000);
+          }})
+          .catch(()=>alert('No se pudo copiar automáticamente.\\nUsa Chrome o Edge para que funcione el portapapeles.'));
+    " style="
+        width:100%;
+        padding:13px 0;
+        border:none;
+        border-radius:9px;
+        cursor:pointer;
+        background:linear-gradient(135deg,#00e676,#1de9b6);
+        color:#000;
+        font-weight:800;
+        font-size:1.05rem;
+        letter-spacing:.3px;
+        margin-top:4px;
+        transition:opacity .2s;
+    "
+    onmouseover="this.style.opacity='.85'"
+    onmouseout="this.style.opacity='1'"
+    >📋  Copiar todo (4 tablas historial)</button>
+    """, height=60)
+
+
+# ══════════════════════════════════════════════════════════════
 # GRÁFICO DE TENDENCIA / ATÍPICOS
 # ══════════════════════════════════════════════════════════════
 
 def make_trend_chart(df_sorted, serie, title, color):
-    """
-    Gráfico de línea partido-a-partido con detección de atípicos.
-    Devuelve (fig, serie_ordenada, mask_outliers) o None si hay pocos datos.
-    """
     s = pd.to_numeric(serie, errors='coerce')
     valid = s.dropna()
     if len(valid) < 4:
@@ -478,27 +525,17 @@ def make_trend_chart(df_sorted, serie, title, color):
     y_out  = [vi for vi,o in zip(vals,is_out) if o]
 
     fig = go.Figure()
-
-    # Banda ±1σ
     fig.add_hrect(y0=max(0,mean_v-std_v), y1=mean_v+std_v,
                   fillcolor=color, opacity=0.07, line_width=0)
-
-    # Límites IQR (zona de atípicos)
     fig.add_hline(y=upper_f, line_dash="dot", line_color="rgba(239,83,80,0.35)", line_width=1)
     if lower_f > 0:
         fig.add_hline(y=lower_f, line_dash="dot", line_color="rgba(239,83,80,0.35)", line_width=1)
-
-    # Media
     fig.add_hline(y=mean_v, line_dash="dash", line_color=color, opacity=0.8,
                   annotation_text=f" μ={mean_v:.1f}", annotation_position="right",
                   annotation_font_color=color)
-
-    # Línea de conexión
     fig.add_trace(go.Scatter(x=x, y=vals, mode='lines',
                              line=dict(color=color, width=1.5), opacity=0.35,
                              showlegend=False, hoverinfo='skip'))
-
-    # Puntos normales
     if x_norm:
         fig.add_trace(go.Scatter(
             x=x_norm, y=y_norm, mode='markers',
@@ -506,8 +543,6 @@ def make_trend_chart(df_sorted, serie, title, color):
             hovertemplate="%{customdata}<extra></extra>",
             customdata=hover_norm, showlegend=False
         ))
-
-    # Puntos atípicos
     if x_out:
         fig.add_trace(go.Scatter(
             x=x_out, y=y_out, mode='markers',
@@ -536,16 +571,10 @@ def make_trend_chart(df_sorted, serie, title, color):
 
 
 def display_variabilidad(df_filt, team_name, tiene):
-    """
-    Muestra gráficos de tendencia partido-a-partido con detección de atípicos
-    y tabla de partidos atípicos con contexto del rival.
-    """
     df_s = df_filt.sort_values("fecha").reset_index(drop=True)
 
-    # Definir métricas a analizar
     stats_def = []
 
-    # Remates — más relevantes para el usuario
     if tiene["remates"]:
         hs_eq  = pd.to_numeric(df_s["home_total_shots"],      errors='coerce')
         sot_eq = pd.to_numeric(df_s["home_shots_on_target"],  errors='coerce')
@@ -560,7 +589,6 @@ def display_variabilidad(df_filt, team_name, tiene):
             ("🎯🎯 Remates al Arco (ambos)",            sot_eq+sot_rv,"#CE93D8"),
         ]
 
-    # Córners
     if tiene["corners"]:
         hc = pd.to_numeric(df_s["home_corner_kicks"], errors='coerce')
         ac = pd.to_numeric(df_s["away_corner_kicks"], errors='coerce')
@@ -570,7 +598,6 @@ def display_variabilidad(df_filt, team_name, tiene):
             ("🔄🔄 Córners Totales",           hc+ac, "#64B5F6"),
         ]
 
-    # Goles
     hg = pd.to_numeric(df_s["home_goals"], errors='coerce')
     ag = pd.to_numeric(df_s["away_goals"], errors='coerce')
     stats_def += [
@@ -579,18 +606,15 @@ def display_variabilidad(df_filt, team_name, tiene):
         ("⚽⚽ Goles Totales",           hg+ag, "#81C784"),
     ]
 
-    # Atajadas
     if tiene["atajadas"]:
         hs2 = pd.to_numeric(df_s["HomeGK_Saves"], errors='coerce')
         stats_def.append((f"🧤 Atajadas portero — {team_name[:14]}", hs2, "#607D8B"))
 
-    # Tarjetas
     hyw = pd.to_numeric(df_s["home_yellow_cards"], errors='coerce').fillna(0)
     ayw = pd.to_numeric(df_s["away_yellow_cards"], errors='coerce').fillna(0)
     stats_def.append(("🟨 Tarjetas (ambos)", hyw+ayw, "#FF9800"))
 
-    # Mostrar en grid 2 columnas
-    all_outliers = []  # recolectar todos los partidos atípicos
+    all_outliers = []
 
     for i in range(0, len(stats_def), 2):
         cols = st.columns(2)
@@ -602,7 +626,6 @@ def display_variabilidad(df_filt, team_name, tiene):
             fig, s_ordered, is_out = result
             col.plotly_chart(fig, use_container_width=True, key=_ck())
 
-            # Recolectar atípicos para esta métrica
             for idx2 in df_s.index[is_out.values]:
                 r = df_s.loc[idx2]
                 val = s_ordered.iloc[idx2] if idx2 < len(s_ordered) else np.nan
@@ -617,14 +640,11 @@ def display_variabilidad(df_filt, team_name, tiene):
                                 f"{int(r['away_goals']) if pd.notna(r.get('away_goals')) else '?'}",
                 })
 
-    # Tabla resumen de atípicos
     if all_outliers:
         st.markdown("---")
         st.markdown("### ⚠️ Resumen de partidos atípicos")
         st.caption("Puntos fuera del rango IQR × 1.5 — pasa el cursor sobre los diamantes rojos para ver el detalle.")
         out_df = pd.DataFrame(all_outliers).drop_duplicates(subset=["Fecha","Rival","Métrica"])
-        def color_atipico(val):
-            return "color:#ef5350;font-weight:700"
         st.dataframe(
             out_df.style.map(lambda v: "color:#ef5350", subset=["Valor"]),
             use_container_width=True, hide_index=True
@@ -674,25 +694,22 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
     s = compute_stats(df_filt, tiene)
     if not s: return
 
-    # Métricas
     c1,c2,c3=st.columns(3)
     cj=lambda p: f"Cuota justa: {1/p:.2f}" if p>0 else "Cuota justa: ∞"
     with c1: st.metric("✅ Gana",   f"{s['p_w']:.1%}  ({s['wins']})",   cj(s['p_w']))
     with c2: st.metric("🟡 Empata", f"{s['p_d']:.1%}  ({s['draws']})",  cj(s['p_d']))
     with c3: st.metric("❌ Pierde", f"{s['p_l']:.1%}  ({s['losses']})", cj(s['p_l']))
 
-    # Historial
     with st.expander(f"📋 Historial — {s['n']} partidos", expanded=False):
         match_df=build_match_df(df_filt, tiene)
         def color_res(val):
-            if "Ganó"   in str(val): return "color:#4CAF50;font-weight:700"
-            if "Perdió" in str(val): return "color:#ef5350;font-weight:700"
+            if "Gano"   in str(val): return "color:#4CAF50;font-weight:700"
+            if "Perdio" in str(val): return "color:#ef5350;font-weight:700"
             if "Empate" in str(val): return "color:#FFC107;font-weight:700"
             return ""
         st.dataframe(match_df.style.map(color_res, subset=["Resultado"]),
                      use_container_width=True, hide_index=True)
 
-    # Promedios
     with st.expander("📊 Promedios por partido", expanded=False):
         avg_rows=[]
         for metrica,(hv,av) in s["avg"].items():
@@ -705,7 +722,6 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
 
     st.markdown("---")
 
-    # ── Over charts ─────────────────────────────────────────
     col_izq, col_der = st.columns(2)
     with col_izq:
         st.plotly_chart(over_chart(s["goles_total_over"],"⚽ Goles Totales Over","#4CAF50"),
@@ -739,7 +755,6 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
             st.plotly_chart(over_chart(corn_det,"🔄 Córners EQ / Rival detalle","#64B5F6",label_prefix=""),
                             use_container_width=True, key=_ck())
 
-    # ── Cuotas ───────────────────────────────────────────────
     if tiene["cuotas"] and "odd_h" in s:
         st.markdown("---")
         st.markdown("**💰 Cuotas promedio B365 en estos partidos**")
@@ -760,7 +775,6 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
         val_metric(vc[1],"odd_d",s["p_d"],"Empate")
         val_metric(vc[2],"odd_a",s["p_l"],"Visitante")
 
-    # ── VARIABILIDAD Y ATÍPICOS ──────────────────────────────
     st.markdown("---")
     with st.expander("📈 Evolución partido a partido — Detección de atípicos", expanded=False):
         st.caption(
@@ -776,10 +790,8 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
 # ══════════════════════════════════════════════════════════════
 
 def display_liga_stats(liga_df, standings, tiene, data_path):
-    """Ranking de todos los equipos por métricas clave."""
     agg = build_liga_stats(data_path)
 
-    # Determinar columnas disponibles
     metrics_available = []
     if agg["Corners"].notna().any():    metrics_available.append(("🔄 Córners",       "Corners",   "#2196F3"))
     if agg["Remates"].notna().any():    metrics_available.append(("💥 Remates Tot.",  "Remates",   "#00BCD4"))
@@ -793,18 +805,11 @@ def display_liga_stats(liga_df, standings, tiene, data_path):
         st.info("No hay métricas disponibles para este CSV.")
         return
 
-    # Tabla completa con posición de standings
     st.markdown("#### 📋 Tabla completa de equipos")
     pos_map = standings["Pos"].to_dict()
     agg_display = agg.copy()
     agg_display.insert(0, "Pos", agg_display.index.map(pos_map).fillna("-").astype(str))
     agg_display = agg_display.sort_values("Pos", key=lambda x: pd.to_numeric(x, errors='coerce'))
-
-    def color_top(val):
-        try:
-            v = float(val)
-            return "color:#4CAF50;font-weight:700" if v > 0 else ""
-        except: return ""
 
     st.dataframe(agg_display.reset_index().rename(columns={"team":"Equipo"}),
                  use_container_width=True, hide_index=True)
@@ -812,7 +817,6 @@ def display_liga_stats(liga_df, standings, tiene, data_path):
     st.markdown("---")
     st.markdown("#### 🏆 Rankings por métrica (top 8)")
 
-    # Bar charts de ranking
     for i in range(0, len(metrics_available), 2):
         cols = st.columns(2)
         for j, col in enumerate(cols):
@@ -840,7 +844,6 @@ def display_liga_stats(liga_df, standings, tiene, data_path):
             )
             col.plotly_chart(fig, use_container_width=True, key=_ck())
 
-    # Nota sobre atajadas inferidas
     if agg["Atajadas"].notna().any():
         st.caption(
             "🧤 **Atajadas**: si no hay datos de portero (HGS/AGS), se calculan como "
@@ -875,14 +878,12 @@ with st.sidebar:
 
     df, standings, fmt = resultado
 
-    # Detectar disponibilidad (incluyendo atajadas inferidas)
     TIENE_CUOTAS   = df["odd_h"].notna().sum() > 0
     TIENE_CORNERS  = df["home_corner_kicks"].notna().sum() > 0
     TIENE_REMATES  = df["home_total_shots"].notna().sum() > 0
-    TIENE_ATAJADAS = df["HomeGK_Saves"].notna().sum() > 0  # ya incluye inferidas
+    TIENE_ATAJADAS = df["HomeGK_Saves"].notna().sum() > 0
     tiene = {"cuotas":TIENE_CUOTAS,"corners":TIENE_CORNERS,"remates":TIENE_REMATES,"atajadas":TIENE_ATAJADAS}
 
-    # Detectar si son inferidas o reales
     tiene_saves_real = df["home_goalkeeper_saves"].notna().sum() > 0 and \
                        not (df["home_goalkeeper_saves"] == df["home_inferred_saves"]).all()
 
@@ -950,7 +951,6 @@ with st.sidebar:
 
 st.markdown('<p class="main-title">⚽ Análisis de Fútbol</p>', unsafe_allow_html=True)
 
-# ── Pantalla inicial ──────────────────────────────────────
 if not analizar and "home_analyzed" not in st.session_state:
     st.markdown(f"### 🏆 Tabla de posiciones — {liga_nombre}")
     sd=standings.copy().reset_index()
@@ -979,7 +979,6 @@ HOME_TEAM=st.session_state.get("home_analyzed",home_sel)
 AWAY_TEAM=st.session_state.get("away_analyzed",away_sel)
 UMBRAL_S =st.session_state.get("umbral_saved", UMBRAL)
 
-# Contexto
 home_pts=int(standings.loc[HOME_TEAM,"PTS"]); away_pts=int(standings.loc[AWAY_TEAM,"PTS"])
 home_pos=int(standings.loc[HOME_TEAM,"Pos"]); away_pos=int(standings.loc[AWAY_TEAM,"Pos"])
 diff_pts=home_pts-away_pts
@@ -1002,13 +1001,7 @@ with cv_col: st.markdown("### vs")
 with ca:   st.markdown(f"### ✈️ {AWAY_TEAM}"); st.caption(f"#{away_pos} · {away_pts} pts")
 st.markdown(f'<div class="ctx-badge {ctx_class}">{ctx_emoji} {ctx_txt}</div>', unsafe_allow_html=True)
 
-# Liga stats colapsable encima de los tabs
-with st.expander("📊 Estadísticas comparativas de la liga", expanded=False):
-    display_liga_stats(df, standings, tiene, data_path)
-
-st.markdown("---")
-
-# Filtrar casos
+# ── Filtrar casos (definición ANTES del botón copiar) ────────
 df_c1=df[df["home"]==HOME_TEAM].copy()
 df_c3=df[df["away"]==AWAY_TEAM].copy()
 
@@ -1041,9 +1034,16 @@ casos = [
     (f"🎯 {AWAY_TEAM} VISITA — {ctx_v_label[contexto_v]} ({len(df_c4)}pj)", df_c4, AWAY_TEAM, True),
 ]
 
-# La misma app tiene dos vistas:
-# - PC / escritorio: mantiene las pestañas horizontales.
-# - Celular: muestra una sola vista por pantalla con Atrás / Next.
+# ── BOTÓN COPIAR TODO ────────────────────────────────────────
+copy_all_button(casos, tiene)
+
+# ── Liga stats colapsable ────────────────────────────────────
+with st.expander("📊 Estadísticas comparativas de la liga", expanded=False):
+    display_liga_stats(df, standings, tiene, data_path)
+
+st.markdown("---")
+
+# ── Tabs / vista celular ─────────────────────────────────────
 if MODO_CELULAR:
     vista_idx = int(st.session_state.get("vista_idx", 0))
     vista_idx = max(0, min(3, vista_idx))
@@ -1061,7 +1061,7 @@ if MODO_CELULAR:
             st.session_state["vista_idx"] = (vista_idx + 1) % 4
             st.rerun()
 
-    st.caption("📱 Vista celular: cambia de vista con el selector del menú izquierdo o con Atrás/Next. En PC puedes volver a la vista de pestañas desde el sidebar.")
+    st.caption("📱 Vista celular: cambia de vista con el selector del menú izquierdo o con Atrás/Next.")
     display_caso(df_case, team_case, es_visitante_case, tiene)
 
 else:
