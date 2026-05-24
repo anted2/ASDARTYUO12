@@ -404,26 +404,26 @@ def build_match_df(df_filt, tiene):
         }
         if tiene["corners"]:
             hc=r.get("home_corner_kicks",np.nan); ac=r.get("away_corner_kicks",np.nan)
-            row["Cor.L"]=str(int(hc)) if pd.notna(hc) else "-"
-            row["Cor.V"]=str(int(ac)) if pd.notna(ac) else "-"
+            row["Cor.EQ"]=str(int(hc)) if pd.notna(hc) else "-"
+            row["Cor.Rv"]=str(int(ac)) if pd.notna(ac) else "-"
             row["Cor.Tot"]=str(int(hc+ac)) if pd.notna(hc) and pd.notna(ac) else "-"
         if tiene["remates"]:
             hrt=r.get("home_total_shots",np.nan); art=r.get("away_total_shots",np.nan)
             hta=r.get("home_shots_on_target",np.nan); ata=r.get("away_shots_on_target",np.nan)
-            row["R.Tot.L"]=str(int(hrt)) if pd.notna(hrt) else "-"
-            row["R.Tot.V"]=str(int(art)) if pd.notna(art) else "-"
+            row["R.Tot.EQ"]=str(int(hrt)) if pd.notna(hrt) else "-"
+            row["R.Tot.Rv"]=str(int(art)) if pd.notna(art) else "-"
             row["R.Tot"]=str(int(hrt+art)) if pd.notna(hrt) and pd.notna(art) else "-"
-            row["R.Arc.L"]=str(int(hta)) if pd.notna(hta) else "-"
-            row["R.Arc.V"]=str(int(ata)) if pd.notna(ata) else "-"
+            row["R.Arc.EQ"]=str(int(hta)) if pd.notna(hta) else "-"
+            row["R.Arc.Rv"]=str(int(ata)) if pd.notna(ata) else "-"
             row["R.Arc.Tot"]=str(int(hta+ata)) if pd.notna(hta) and pd.notna(ata) else "-"
         if tiene["atajadas"]:
             hgk=r.get("HomeGK_Saves",np.nan); agk=r.get("AwayGK_Saves",np.nan)
-            row["Ataj.L"]=str(int(hgk)) if pd.notna(hgk) else "-"
-            row["Ataj.V"]=str(int(agk)) if pd.notna(agk) else "-"
+            row["Ataj.EQ"]=str(int(hgk)) if pd.notna(hgk) else "-"
+            row["Ataj.Rv"]=str(int(agk)) if pd.notna(agk) else "-"
         if tiene["cuotas"]:
             def fr(col): v=r.get(col,np.nan); return str(round(float(v),2)) if pd.notna(v) else "-"
-            row["1(L)"]=fr("odd_h"); row["X"]=fr("odd_d")
-            row["2(V)"]=fr("odd_a"); row["O2.5"]=fr("odd_o25"); row["AH"]=fr("ah_line")
+            row["1(EQ)"]=fr("odd_h"); row["X"]=fr("odd_d")
+            row["2(Rv)"]=fr("odd_a"); row["O2.5"]=fr("odd_o25"); row["AH"]=fr("ah_line")
         rows.append(row)
     return pd.DataFrame(rows)
 
