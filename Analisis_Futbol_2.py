@@ -6,6 +6,10 @@ import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import os
+import re
+import unicodedata
+import csv
+import io
 import warnings
 import plotly.graph_objects as go
 warnings.filterwarnings("ignore")
@@ -425,14 +429,486 @@ def build_match_df(df_filt, tiene):
 
 
 # ══════════════════════════════════════════════════════════════
-# BOTÓN COPIAR TODO — 4 TABLAS
+# CUOTAS BETANO – PARSER
 # ══════════════════════════════════════════════════════════════
 
-def copy_all_button(casos_data, tiene):
+NOISE_EXACT = {
+    "BB", "BET", "BUILDER", "POPULAR", "MOSTRAR TODO",
+    "Mercados principales", "Más/Menos", "Formaciones", "Jugadores",
+    "Córners", "Tarjetas", "Estadísticas", "Goles", "Primer Tiempo",
+    "Especiales", "Hándicap", "Hándicap Asiático", "Minutos",
+    "Datos", "Todo", "REGISTRO", "INGRESAR",
+    "Fútbol", "Básquetbol", "Tenis", "Esports", "Béisbol",
+    "Fórmula 1", "MMA", "Voleibol", "Hockey sobre hielo",
+    "Tenis de mesa", "Box", "Fútbol americano", "Balonmano"
+}
+
+
+def norm(s):
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return s.lower().strip()
+
+
+def normalize_text(text):
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace("\r", "\n").replace("\t", " ")
+    text = re.sub(r"[ ]{2,}", " ", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text.strip()
+
+
+def clean_lines(raw_text):
+    raw_text = normalize_text(raw_text)
+    lines = []
+
+    for line in raw_text.splitlines():
+        line = line.strip()
+
+        if not line:
+            continue
+
+        if line in NOISE_EXACT:
+            continue
+
+        if re.search(r"\d+%\s+MEJORADAS", line, re.I):
+            continue
+
+        if line.startswith("PATROCINADOR"):
+            continue
+
+        if line.startswith("Apoyamos"):
+            continue
+
+        lines.append(line)
+
+    return lines
+
+
+def is_number(x):
+    return bool(re.fullmatch(r"\d+(?:\.\d+)?", x.strip()))
+
+
+def find_match(lines):
+    date_pattern = re.compile(
+        r"(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo),?\s+\d{1,2}\s+\w+\s+\d{4}\s+\d{1,2}:\d{2}",
+        re.I
+    )
+
+    for i, line in enumerate(lines):
+        if date_pattern.search(line):
+            teams = []
+
+            for j in range(i + 1, min(i + 10, len(lines))):
+                candidate = lines[j].strip()
+
+                if not candidate:
+                    continue
+
+                if candidate in NOISE_EXACT:
+                    continue
+
+                if any(char.isdigit() for char in candidate):
+                    continue
+
+                bad_words = [
+                    "POPULAR", "MEJORADAS", "Mercados", "Resultado",
+                    "Más", "Menos", "Córners", "Tarjetas", "Goles",
+                    "Tiros", "Remates"
+                ]
+
+                if any(w in candidate for w in bad_words):
+                    continue
+
+                teams.append(candidate)
+
+                if len(teams) == 2:
+                    return teams[0], teams[1]
+
+    for line in lines:
+        if " - " in line:
+            bad = [
+                "Más/Menos", "Resultado", "Tarjetas", "Goles",
+                "Córners", "Tiros", "Remates", "Jugador"
+            ]
+
+            if any(x in line for x in bad):
+                continue
+
+            parts = line.split(" - ")
+
+            if len(parts) == 2:
+                home = parts[0].strip()
+                away = parts[1].strip()
+
+                home = re.sub(
+                    r"^.*?(Premier League|Brasileirao|Serie A|LaLiga|Liga|Betano)",
+                    "",
+                    home
+                ).strip()
+
+                if len(home) > 2 and len(away) > 2:
+                    return home, away
+
+    return None, None
+
+
+def trim_to_main_markets(lines):
+    for i, line in enumerate(lines):
+        if line.strip() == "Resultado del partido":
+            return lines[i:]
+
+    return lines
+
+
+def is_bad_secondary_market(line):
+    n = norm(line)
+
+    bad_patterns = [
+        "primer tiempo",
+        "segundo tiempo",
+        "cronometrados",
+        "marcador correcto",
+        "resultado del partido con",
+        "ambos anotan y",
+        "ambos equipos anotan o",
+        "jugador",
+        "goleador",
+        "anotar",
+        "asistencias",
+        "pases",
+        "tackles",
+        "atajadas",
+        "fueras de juego",
+        "faltas",
+        "palo",
+        "penal",
+        "tarjeta roja",
+        "recibir una tarjeta",
+        "recibe una tarjeta",
+        "primera tarjeta",
+        "total de pases",
+        "saques",
+        "rango",
+        "rangos",
+        "triple",
+        "carrera a",
+        "handicap",
+        "handicap asiatico",
+        "doble oportunidad",
+        "apuesta sin empate",
+        "tiempo con mas",
+        "forma de anotacion",
+        "proximo gol",
+        "hora del proximo",
+        "curso del juego"
+    ]
+
+    return any(p in n for p in bad_patterns)
+
+
+def detect_target_market(line, home, away):
+    n = norm(line)
+    home_n = norm(home or "")
+    away_n = norm(away or "")
+
+    if is_bad_secondary_market(line):
+        return None, None
+
+    if n == "resultado del partido":
+        return "1x2", "match"
+
+    if n == "ambos equipos anotan":
+        return "btts", "total"
+
+    if n.startswith("goles totales mas/menos"):
+        return "goles", "total"
+
+    if n.startswith("mas/menos corners"):
+        return "corners", "total"
+
+    if n.startswith("tarjetas totales mas/menos"):
+        return "tarjetas", "total"
+
+    if n == "tiros al arco":
+        return "tiros_al_arco", "total"
+
+    if n == "remates totales":
+        return "remates", "total"
+
+    teams = [
+        (home_n, "home"),
+        (away_n, "away"),
+    ]
+
+    for team_n, scope in teams:
+        if not team_n:
+            continue
+
+        if n.startswith(team_n) and "remates totales" in n:
+            return "remates", scope
+
+        if n.startswith(team_n) and "tiros al arco" in n:
+            return "tiros_al_arco", scope
+
+        if n.startswith(team_n) and "corners" in n:
+            return "corners", scope
+
+        if n.startswith(team_n) and "tarjetas totales" in n:
+            return "tarjetas", scope
+
+        if n.startswith(team_n) and "goles totales" in n:
+            return "goles", scope
+
+    return None, None
+
+
+def should_reset_market(line, home, away):
+    market, scope = detect_target_market(line, home, away)
+
+    if market:
+        return False
+
+    n = norm(line)
+
+    keywords = [
+        "remates totales",
+        "tiros al arco",
+        "corners",
+        "tarjetas",
+        "goles",
+        "ambos equipos",
+        "resultado",
+        "jugador",
+        "goleador",
+        "asistencias",
+        "pases",
+        "tackles",
+        "atajadas",
+        "faltas",
+        "fueras",
+        "penal",
+        "palo",
+        "primer tiempo",
+        "segundo tiempo"
+    ]
+
+    return any(k in n for k in keywords)
+
+
+def parse_inline_over_under(line):
+    pattern = r"\b(Más|Menos)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\b"
+    return re.findall(pattern, line)
+
+
+def valid_line_for_market(market, scope, line_value):
+    if line_value == "":
+        return True
+
+    x = float(line_value)
+
+    if market == "remates":
+        if scope == "total":
+            return 10 <= x <= 45
+        return 5 <= x <= 35
+
+    if market == "tiros_al_arco":
+        if scope == "total":
+            return 3 <= x <= 20
+        return 1.5 <= x <= 12
+
+    if market == "corners":
+        if scope == "total":
+            return 4.5 <= x <= 22
+        return 0.5 <= x <= 15
+
+    if market == "tarjetas":
+        if scope == "total":
+            return 0.5 <= x <= 14
+        return 0.5 <= x <= 8
+
+    if market == "goles":
+        if scope == "total":
+            return 0.5 <= x <= 8.5
+        return 0.5 <= x <= 5.5
+
+    return True
+
+
+def add_row(rows, match, home, away, market, scope, side, line_value, odds):
+    if not valid_line_for_market(market, scope, line_value):
+        return
+
+    rows.append({
+        "match": match,
+        "home": home or "",
+        "away": away or "",
+        "market": market,
+        "scope": scope,
+        "side": side,
+        "line": line_value,
+        "odds": float(odds),
+    })
+
+
+def parse_betano_text(raw_text):
+    lines = clean_lines(raw_text)
+    home, away = find_match(lines)
+    lines = trim_to_main_markets(lines)
+
+    match = f"{home} vs {away}" if home and away else ""
+
+    rows = []
+    current_market = None
+    current_scope = None
+
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        detected_market, detected_scope = detect_target_market(line, home, away)
+
+        if detected_market:
+            current_market = detected_market
+            current_scope = detected_scope
+            i += 1
+            continue
+
+        if should_reset_market(line, home, away):
+            current_market = None
+            current_scope = None
+            i += 1
+            continue
+
+        # 1X2
+        if current_market == "1x2" and line in {"1", "X", "2"}:
+            if i + 1 < len(lines) and is_number(lines[i + 1]):
+                side_map = {
+                    "1": "home",
+                    "X": "draw",
+                    "2": "away"
+                }
+
+                add_row(
+                    rows, match, home, away,
+                    "1x2", "match",
+                    side_map[line], "",
+                    lines[i + 1]
+                )
+
+                i += 2
+                continue
+
+        # Over/Under en tres líneas
+        if current_market and line in {"Más", "Menos"}:
+            if i + 2 < len(lines) and is_number(lines[i + 1]) and is_number(lines[i + 2]):
+                side = "over" if line == "Más" else "under"
+                line_value = float(lines[i + 1])
+                odds = float(lines[i + 2])
+
+                add_row(
+                    rows, match, home, away,
+                    current_market, current_scope,
+                    side, line_value, odds
+                )
+
+                i += 3
+                continue
+
+        # Over/Under en una línea
+        if current_market:
+            inline_ou = parse_inline_over_under(line)
+
+            if inline_ou:
+                for side_raw, line_value, odds in inline_ou:
+                    side = "over" if side_raw == "Más" else "under"
+
+                    add_row(
+                        rows, match, home, away,
+                        current_market, current_scope,
+                        side, float(line_value), float(odds)
+                    )
+
+                i += 1
+                continue
+
+        # BTTS
+        if current_market == "btts" and line in {"Sí", "Si", "No"}:
+            if i + 1 < len(lines) and is_number(lines[i + 1]):
+                side = "yes" if line in {"Sí", "Si"} else "no"
+
+                add_row(
+                    rows, match, home, away,
+                    "btts", "total",
+                    side, "", lines[i + 1]
+                )
+
+                i += 2
+                continue
+
+        i += 1
+
+    return dedupe_and_sort(rows)
+
+
+def dedupe_and_sort(rows):
+    best = {}
+
+    for row in rows:
+        key = (
+            row["match"],
+            row["market"],
+            row["scope"],
+            row["side"],
+            row["line"],
+        )
+
+        if key not in best:
+            best[key] = row
+        else:
+            if float(row["odds"]) > float(best[key]["odds"]):
+                best[key] = row
+
+    clean = list(best.values())
+
+    market_order = {
+        "1x2": 0,
+        "remates": 1,
+        "tiros_al_arco": 2,
+        "corners": 3,
+        "tarjetas": 4,
+        "goles": 5,
+        "btts": 6,
+    }
+
+    scope_order = {
+        "match": 0,
+        "total": 1,
+        "home": 2,
+        "away": 3,
+    }
+
+    clean.sort(
+        key=lambda r: (
+            market_order.get(r["market"], 99),
+            scope_order.get(r["scope"], 99),
+            float(r["line"]) if r["line"] != "" else -1,
+            r["side"]
+        )
+    )
+
+    return clean
+
+
+# ══════════════════════════════════════════════════════════════
+# BOTÓN COPIAR TODO — 4 TABLAS + CUOTAS
+# ══════════════════════════════════════════════════════════════
+
+def copy_all_button(casos_data, tiene, cuotas_df=None):
     """
-    Arma las 4 tablas de historial en texto TSV y las pone
-    en un botón que las copia al portapapeles de una sola vez.
-    Pegar en Excel / Google Sheets mantiene las columnas separadas.
+    Arma las 4 tablas de historial más, si hay, la tabla de cuotas,
+    y las copia al portapapeles en formato TSV.
     """
     lines = []
     for titulo, df_filt, team_name, es_visitante in casos_data:
@@ -444,11 +920,17 @@ def copy_all_button(casos_data, tiene):
         df_use = swap_visitante(df_filt.copy()) if es_visitante else df_filt.copy()
         match_df = build_match_df(df_use, tiene)
         lines.append(match_df.to_csv(sep="\t", index=False))
-        lines.append("")   # línea en blanco entre secciones
+        lines.append("")
+
+    # Agregar tabla de cuotas si existe
+    if cuotas_df is not None and not cuotas_df.empty:
+        lines.append("=== Cuotas Betano ===")
+        lines.append(cuotas_df.to_csv(sep="\t", index=False))
+        lines.append("")
 
     full_text = "\n".join(lines)
 
-    # Escapar para JS template literal (backtick, $, backslash)
+    # Escapar para JS template literal
     safe = (full_text
             .replace("\\", "\\\\")
             .replace("`",  "\\`")
@@ -460,7 +942,7 @@ def copy_all_button(casos_data, tiene):
           .then(()=>{{
             document.getElementById('cpbtn').innerText = '✅  ¡Copiado! — pega en Excel o Google Sheets';
             setTimeout(()=>{{
-              document.getElementById('cpbtn').innerText = '📋  Copiar todo (4 tablas historial)';
+              document.getElementById('cpbtn').innerText = '📋  Copiar todo (historial + cuotas)';
             }}, 3000);
           }})
           .catch(()=>alert('No se pudo copiar automáticamente.\\nUsa Chrome o Edge para que funcione el portapapeles.'));
@@ -480,7 +962,7 @@ def copy_all_button(casos_data, tiene):
     "
     onmouseover="this.style.opacity='.85'"
     onmouseout="this.style.opacity='1'"
-    >📋  Copiar todo (4 tablas historial)</button>
+    >📋  Copiar todo (historial + cuotas)</button>
     """, height=60)
 
 
@@ -1034,8 +1516,38 @@ casos = [
     (f"🎯 {AWAY_TEAM} VISITA — {ctx_v_label[contexto_v]} ({len(df_c4)}pj)", df_c4, AWAY_TEAM, True),
 ]
 
-# ── BOTÓN COPIAR TODO ────────────────────────────────────────
-copy_all_button(casos, tiene)
+# ── SECCIÓN DE CUOTAS BETANO ─────────────────────────────────
+with st.expander("📋 Parsear cuotas Betano (opcional)", expanded=False):
+    raw_betano = st.text_area(
+        "Pega aquí TODO el texto copiado de Betano",
+        height=200,
+        key="betano_input"
+    )
+    if st.button("🔄 Parsear cuotas", key="parse_btn"):
+        if raw_betano.strip():
+            parsed_rows = parse_betano_text(raw_betano)
+            st.session_state["cuotas_rows"] = parsed_rows
+            if parsed_rows:
+                st.success(f"✅ {len(parsed_rows)} cuotas encontradas.")
+            else:
+                st.warning("⚠️ No se encontraron cuotas.")
+        else:
+            st.warning("Pega el texto primero.")
+
+    # Mostrar tabla si ya se parseó
+    if "cuotas_rows" in st.session_state and st.session_state["cuotas_rows"]:
+        cuotas_df = pd.DataFrame(st.session_state["cuotas_rows"])
+        st.dataframe(cuotas_df, use_container_width=True, hide_index=True)
+    else:
+        cuotas_df = None
+
+# ── BOTÓN COPIAR TODO (incluye cuotas si existen) ────────────
+# Preparamos el DataFrame de cuotas si existe en session_state
+cuotas_final = None
+if "cuotas_rows" in st.session_state and st.session_state["cuotas_rows"]:
+    cuotas_final = pd.DataFrame(st.session_state["cuotas_rows"])
+
+copy_all_button(casos, tiene, cuotas_df=cuotas_final)
 
 # ── Liga stats colapsable ────────────────────────────────────
 with st.expander("📊 Estadísticas comparativas de la liga", expanded=False):
