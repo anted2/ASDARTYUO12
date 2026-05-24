@@ -1036,7 +1036,7 @@ def copy_all_button(all_data):
 
 
 # ══════════════════════════════════════════════════════════════
-# SIDEBAR (CON MODO MÚLTIPLE MEJORADO)
+# SIDEBAR (UNIFICADO)
 # ══════════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -1108,7 +1108,7 @@ with st.sidebar:
                 st.session_state.batch_pairs = []
                 st.rerun()
 
-        # Parseo Betano multi‑partido (opcional)
+        # Betano texto multi‑partido
         raw_betano_batch = st.text_area("Pega aquí el texto COMPLETO de Betano (varios partidos)", height=150, key="batch_betano")
         analizar = st.button("🔍 Analizar lote", type="primary", use_container_width=True)
 
@@ -1143,7 +1143,7 @@ else:
     if not partidos:
         st.warning("No agregaste ningún partido a la lista."); st.stop()
 
-# Parseo de cuotas Betano
+# Parseo de cuotas Betano según modo
 cuotas_por_partido = {}
 if modo_lote and raw_betano_batch.strip():
     cuotas_por_partido = parse_betano_multimatch(raw_betano_batch)
@@ -1200,15 +1200,21 @@ for HOME_TEAM, AWAY_TEAM in partidos:
     ctx_label = {"FAVORITO":f"⭐ Fav.(≥{UMBRAL}pts)","UNDERDOG":f"💪 Underdog(≥{UMBRAL}pts)","REÑIDO":f"⚔️ Reñido(<{UMBRAL}pts)"}
     ctx_v_label = {"FAVORITO":f"⭐ Fav.V(≥{UMBRAL}pts)","UNDERDOG":f"💪 UnderdogV(≥{UMBRAL}pts)","REÑIDO":f"⚔️ ReñidoV(<{UMBRAL}pts)"}
 
-    match_key = f"{HOME_TEAM} vs {AWAY_TEAM}"
+    # Determinar cuotas para este partido (según modo)
     cuotas_df_partido = None
-    limpia = lambda t: norm(t)
-    for key, odds in cuotas_por_partido.items():
-        hc, ac = key.split(" vs ")
-        if limpia(hc) == limpia(HOME_TEAM) and limpia(ac) == limpia(AWAY_TEAM):
-            cuotas_df_partido = pd.DataFrame(odds)
-            break
+    if modo_lote:
+        match_key = f"{HOME_TEAM} vs {AWAY_TEAM}"
+        limpia = lambda t: norm(t)
+        for key, odds in cuotas_por_partido.items():
+            hc, ac = key.split(" vs ")
+            if limpia(hc) == limpia(HOME_TEAM) and limpia(ac) == limpia(AWAY_TEAM):
+                cuotas_df_partido = pd.DataFrame(odds)
+                break
+    else:
+        # Modo individual: sección de cuotas Betano se maneja con un expander y un parseo ad-hoc
+        cuotas_df_partido = None  # se llenará si el usuario parsea en el expander
 
+    # Mostrar análisis en un expander (si son varios partidos, colapsado por defecto)
     with st.expander(f"📈 Análisis {HOME_TEAM} vs {AWAY_TEAM}", expanded=(len(partidos)==1)):
         tab1,tab2,tab3,tab4 = st.tabs([
             f"🏠 {HOME_TEAM[:14]} LOCAL  (general, {len(df_c1)}pj)",
@@ -1221,11 +1227,40 @@ for HOME_TEAM, AWAY_TEAM in partidos:
         with tab3: display_caso(df_c3, AWAY_TEAM, True,  tiene)
         with tab4: display_caso(df_c4, AWAY_TEAM, True,  tiene)
 
-        if cuotas_df_partido is not None:
-            st.markdown("---")
-            st.subheader("💰 Cuotas Betano para este partido")
-            st.dataframe(cuotas_df_partido, use_container_width=True, hide_index=True)
+        if not modo_lote:
+            # Expander para pegar cuotas Betano individual
+            with st.expander("💰 Cuotas Betano (opcional)", expanded=False):
+                raw_betano = st.text_area(
+                    "Pega aquí el texto de Betano para este partido",
+                    height=120, key=f"betano_{HOME_TEAM}_{AWAY_TEAM}"
+                )
+                if st.button("🔄 Parsear cuotas", key=f"parse_{HOME_TEAM}_{AWAY_TEAM}"):
+                    if raw_betano.strip():
+                        parsed = parse_betano_multimatch(raw_betano)
+                        # Buscar el partido que coincida
+                        found = False
+                        limpia = lambda t: norm(t)
+                        for key, odds in parsed.items():
+                            hc, ac = key.split(" vs ")
+                            if limpia(hc) == limpia(HOME_TEAM) and limpia(ac) == limpia(AWAY_TEAM):
+                                st.session_state[f"cuotas_{HOME_TEAM}_{AWAY_TEAM}"] = pd.DataFrame(odds)
+                                found = True
+                                break
+                        if not found:
+                            st.warning("No se encontraron cuotas para este partido en el texto pegado.")
+                    else:
+                        st.warning("Pega el texto primero.")
+                if f"cuotas_{HOME_TEAM}_{AWAY_TEAM}" in st.session_state:
+                    cuotas_df_partido = st.session_state[f"cuotas_{HOME_TEAM}_{AWAY_TEAM}"]
+                    st.dataframe(cuotas_df_partido, use_container_width=True, hide_index=True)
+        else:
+            # Modo lote: mostrar cuotas ya parseadas
+            if cuotas_df_partido is not None:
+                st.markdown("---")
+                st.subheader("💰 Cuotas Betano para este partido")
+                st.dataframe(cuotas_df_partido, use_container_width=True, hide_index=True)
 
+    # Acumular para copiar todo
     for titulo, df_case, team, es_vis in [
         (f"{HOME_TEAM} LOCAL — general", df_c1, HOME_TEAM, False),
         (f"{HOME_TEAM} LOCAL — {ctx_label[contexto]}", df_c2, HOME_TEAM, False),
