@@ -417,7 +417,7 @@ def build_match_df(df_filt, tiene):
 
 
 # ══════════════════════════════════════════════════════════════
-# CUOTAS BETANO – PARSER MULTI‑PARTIDO
+# CUOTAS BETANO – PARSER MULTI‑PARTIDO (sin cambios)
 # ══════════════════════════════════════════════════════════════
 
 NOISE_EXACT = {
@@ -638,7 +638,7 @@ def parse_betano_multimatch(raw_text):
 
 
 # ══════════════════════════════════════════════════════════════
-# GRÁFICOS Y VISUALIZACIÓN
+# GRÁFICOS Y VISUALIZACIÓN (se mantienen igual)
 # ══════════════════════════════════════════════════════════════
 
 def make_trend_chart(df_sorted, serie, title, color):
@@ -1014,7 +1014,6 @@ with st.sidebar:
                 st.session_state.batch_pairs = []
                 st.rerun()
 
-        # Sin área de Betano en sidebar; se pondrá en main.
         analizar = st.button("🔍 Analizar lote", type="primary", use_container_width=True)
 
 
@@ -1024,7 +1023,16 @@ with st.sidebar:
 
 st.markdown('<p class="main-title">⚽ Análisis de Fútbol</p>', unsafe_allow_html=True)
 
-if not analizar and "home_analyzed" not in st.session_state:
+# Guardar estado del análisis para que no se pierda al parsear
+if analizar:
+    st.session_state["home_analyzed"] = home_sel if not modo_lote else None
+    st.session_state["away_analyzed"] = away_sel if not modo_lote else None
+    st.session_state["umbral_saved"] = UMBRAL
+    st.session_state["modo_lote_saved"] = modo_lote
+    st.session_state["batch_saved"] = st.session_state.get("batch_pairs", [])
+
+if not analizar and "home_analyzed" not in st.session_state and "batch_saved" not in st.session_state:
+    # Pantalla inicial (solo si nunca se ha hecho un análisis)
     st.markdown(f"### 🏆 Tabla de posiciones — {liga_nombre}")
     sd = standings.copy().reset_index()
     sd.columns = ["Equipo","Pos","PJ","G","E","P","GF","GC","DG","PTS"]
@@ -1041,14 +1049,26 @@ if not analizar and "home_analyzed" not in st.session_state:
     st.info("👈 Configura el análisis en la barra lateral.")
     st.stop()
 
-if not modo_lote:
-    partidos = [(home_sel, away_sel)]
+# Recuperar estado guardado
+if not analizar:
+    modo_lote = st.session_state.get("modo_lote_saved", modo_lote)
+    if not modo_lote:
+        home_sel = st.session_state.get("home_analyzed", home_sel)
+        away_sel = st.session_state.get("away_analyzed", away_sel)
+        partidos = [(home_sel, away_sel)]
+    else:
+        partidos = st.session_state.get("batch_saved", [])
 else:
-    partidos = st.session_state.get("batch_pairs", [])
-    if not partidos:
-        st.warning("No agregaste ningún partido a la lista."); st.stop()
+    if not modo_lote:
+        partidos = [(home_sel, away_sel)]
+    else:
+        partidos = st.session_state.get("batch_pairs", [])
 
-# ─── SECCIÓN DE CUOTAS BETANO (SIEMPRE AL INICIO) ───
+if not partidos:
+    st.warning("No hay partidos para analizar. Agrega al menos uno.")
+    st.stop()
+
+# ─── SECCIÓN DE CUOTAS BETANO (AL INICIO) ───
 with st.expander("💰 Parsear cuotas Betano (opcional)", expanded=False):
     raw_betano = st.text_area("Pega aquí el texto de Betano (puede contener varios partidos)", height=150,
                               key="betano_main")
@@ -1065,11 +1085,15 @@ with st.expander("💰 Parsear cuotas Betano (opcional)", expanded=False):
 
 cuotas_global = st.session_state.get("cuotas_parsed", {})
 
-# ─── PREPARAR DATOS DE TODOS LOS PARTIDOS (PARA COPIAR Y MOSTRAR) ───
-matches_info = []      # contendrá dicts con toda la info para mostrar
-all_copy_data = []      # lista para el botón copiar
+# ─── PREPARAR DATOS DE TODOS LOS PARTIDOS ───
+matches_info = []
+all_copy_data = []
 
 for HOME_TEAM, AWAY_TEAM in partidos:
+    if HOME_TEAM not in standings.index or AWAY_TEAM not in standings.index:
+        st.warning(f"Equipo no encontrado: {HOME_TEAM} o {AWAY_TEAM}. Se omite.")
+        continue
+
     home_pts = int(standings.loc[HOME_TEAM,"PTS"]); away_pts = int(standings.loc[AWAY_TEAM,"PTS"])
     home_pos = int(standings.loc[HOME_TEAM,"Pos"]); away_pos = int(standings.loc[AWAY_TEAM,"Pos"])
     diff_pts = home_pts - away_pts
@@ -1109,7 +1133,7 @@ for HOME_TEAM, AWAY_TEAM in partidos:
     ctx_label = {"FAVORITO":f"⭐ Fav.(≥{UMBRAL}pts)","UNDERDOG":f"💪 Underdog(≥{UMBRAL}pts)","REÑIDO":f"⚔️ Reñido(<{UMBRAL}pts)"}
     ctx_v_label = {"FAVORITO":f"⭐ Fav.V(≥{UMBRAL}pts)","UNDERDOG":f"💪 UnderdogV(≥{UMBRAL}pts)","REÑIDO":f"⚔️ ReñidoV(<{UMBRAL}pts)"}
 
-    # Cuotas Betano para este partido desde el parseo global
+    # Cuotas Betano para este partido
     cuotas_df_partido = None
     match_key = f"{HOME_TEAM} vs {AWAY_TEAM}"
     limpia = lambda t: norm(t)
@@ -1119,7 +1143,6 @@ for HOME_TEAM, AWAY_TEAM in partidos:
             cuotas_df_partido = pd.DataFrame(odds)
             break
 
-    # Guardar para mostrar y para copiar
     match_dict = {
         "home": HOME_TEAM, "away": AWAY_TEAM,
         "home_pts": home_pts, "away_pts": away_pts,
@@ -1131,7 +1154,6 @@ for HOME_TEAM, AWAY_TEAM in partidos:
     }
     matches_info.append(match_dict)
 
-    # Acumular para botón copiar
     for titulo, df_case, team, es_vis in [
         (f"{HOME_TEAM} LOCAL — general", df_c1, HOME_TEAM, False),
         (f"{HOME_TEAM} LOCAL — {ctx_label[contexto]}", df_c2, HOME_TEAM, False),
