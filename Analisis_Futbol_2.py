@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 warnings.filterwarnings("ignore")
 
 # ══════════════════════════════════════════════════════════════
-# CONTADOR GLOBAL DE KEYS — se reinicia en cada rerun de Streamlit
+# CONTADOR GLOBAL DE KEYS
 # ══════════════════════════════════════════════════════════════
 _KEY_CTR = [0]
 def _ck():
@@ -26,7 +26,7 @@ def _ck():
 st.set_page_config(page_title="⚽ Análisis de Fútbol", page_icon="⚽",
                    layout="wide", initial_sidebar_state="expanded")
 
-FOLDER = "."  # Streamlit Cloud: CSVs en la raíz del repositorio
+FOLDER = "."
 
 st.markdown("""
 <style>
@@ -302,18 +302,6 @@ def over_stat(serie, umbral):
     return n/len(s), n, len(s)
 
 
-def detect_outliers_iqr(serie):
-    s = pd.to_numeric(serie, errors='coerce')
-    valid = s.dropna()
-    if len(valid) < 5:
-        return pd.Series(False, index=serie.index)
-    Q1, Q3 = valid.quantile(0.25), valid.quantile(0.75)
-    IQR = Q3 - Q1
-    lower = Q1 - 1.5*IQR
-    upper = Q3 + 1.5*IQR
-    return (s < lower) | (s > upper)
-
-
 def compute_stats(df_filt, tiene):
     n = len(df_filt)
     if n==0: return None
@@ -443,12 +431,10 @@ NOISE_EXACT = {
     "Tenis de mesa", "Box", "Fútbol americano", "Balonmano"
 }
 
-
 def norm(s):
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     return s.lower().strip()
-
 
 def normalize_text(text):
     text = unicodedata.normalize("NFKC", text)
@@ -457,43 +443,25 @@ def normalize_text(text):
     text = re.sub(r"\n{2,}", "\n", text)
     return text.strip()
 
-
 def clean_lines(raw_text):
     raw_text = normalize_text(raw_text)
     lines = []
-
     for line in raw_text.splitlines():
         line = line.strip()
-
-        if not line:
-            continue
-
-        if line in NOISE_EXACT:
-            continue
-
-        if re.search(r"\d+%\s+MEJORADAS", line, re.I):
-            continue
-
-        if line.startswith("PATROCINADOR"):
-            continue
-
-        if line.startswith("Apoyamos"):
-            continue
-
+        if not line: continue
+        if line in NOISE_EXACT: continue
+        if re.search(r"\d+%\s+MEJORADAS", line, re.I): continue
+        if line.startswith("PATROCINADOR"): continue
+        if line.startswith("Apoyamos"): continue
         lines.append(line)
-
     return lines
-
 
 def is_number(x):
     return bool(re.fullmatch(r"\d+(?:\.\d+)?", x.strip()))
 
-
 def find_all_matches(lines):
     date_pattern = re.compile(
-        r"(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo),?\s+\d{1,2}\s+\w+\s+\d{4}\s+\d{1,2}:\d{2}",
-        re.I
-    )
+        r"(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo),?\s+\d{1,2}\s+\w+\s+\d{4}\s+\d{1,2}:\d{2}", re.I)
     match_blocks = []
     i = 0
     while i < len(lines):
@@ -501,22 +469,14 @@ def find_all_matches(lines):
             teams = []
             for j in range(i+1, min(i+10, len(lines))):
                 candidate = lines[j].strip()
-                if not candidate or candidate in NOISE_EXACT:
-                    continue
-                if any(char.isdigit() for char in candidate):
-                    continue
-                bad_words = [
-                    "POPULAR", "MEJORADAS", "Mercados", "Resultado",
-                    "Más", "Menos", "Córners", "Tarjetas", "Goles",
-                    "Tiros", "Remates"
-                ]
-                if any(w in candidate for w in bad_words):
-                    continue
+                if not candidate or candidate in NOISE_EXACT: continue
+                if any(char.isdigit() for char in candidate): continue
+                bad_words = ["POPULAR", "MEJORADAS", "Mercados", "Resultado", "Más", "Menos", "Córners", "Tarjetas", "Goles", "Tiros", "Remates"]
+                if any(w in candidate for w in bad_words): continue
                 teams.append(candidate)
                 if len(teams) == 2:
                     end = j + 1
-                    while end < len(lines) and not date_pattern.search(lines[end]):
-                        end += 1
+                    while end < len(lines) and not date_pattern.search(lines[end]): end += 1
                     match_blocks.append((i, end, teams[0], teams[1]))
                     i = end
                     break
@@ -524,7 +484,6 @@ def find_all_matches(lines):
                 i += 1
         else:
             i += 1
-
     if not match_blocks:
         for i, line in enumerate(lines):
             if " - " in line and not any(x in line for x in ["Más/Menos", "Resultado", "Tarjetas", "Goles", "Córners", "Tiros", "Remates", "Jugador"]):
@@ -534,9 +493,7 @@ def find_all_matches(lines):
                     away = parts[1].strip()
                     if len(home) > 2 and len(away) > 2:
                         match_blocks.append((i, i+1, home, away))
-
     return match_blocks
-
 
 def is_bad_secondary_market(line):
     n = norm(line)
@@ -553,27 +510,18 @@ def is_bad_secondary_market(line):
     ]
     return any(p in n for p in bad_patterns)
 
-
 def detect_target_market(line, home, away):
     n = norm(line)
     home_n = norm(home or "")
     away_n = norm(away or "")
-    if is_bad_secondary_market(line):
-        return None, None
-    if n == "resultado del partido":
-        return "1x2", "match"
-    if n == "ambos equipos anotan":
-        return "btts", "total"
-    if n.startswith("goles totales mas/menos"):
-        return "goles", "total"
-    if n.startswith("mas/menos corners"):
-        return "corners", "total"
-    if n.startswith("tarjetas totales mas/menos"):
-        return "tarjetas", "total"
-    if n == "tiros al arco":
-        return "tiros_al_arco", "total"
-    if n == "remates totales":
-        return "remates", "total"
+    if is_bad_secondary_market(line): return None, None
+    if n == "resultado del partido": return "1x2", "match"
+    if n == "ambos equipos anotan": return "btts", "total"
+    if n.startswith("goles totales mas/menos"): return "goles", "total"
+    if n.startswith("mas/menos corners"): return "corners", "total"
+    if n.startswith("tarjetas totales mas/menos"): return "tarjetas", "total"
+    if n == "tiros al arco": return "tiros_al_arco", "total"
+    if n == "remates totales": return "remates", "total"
     for team_n, scope in [(home_n, "home"), (away_n, "away")]:
         if not team_n: continue
         if n.startswith(team_n) and "remates totales" in n: return "remates", scope
@@ -583,55 +531,35 @@ def detect_target_market(line, home, away):
         if n.startswith(team_n) and "goles totales" in n: return "goles", scope
     return None, None
 
-
 def should_reset_market(line, home, away):
     market, scope = detect_target_market(line, home, away)
     if market: return False
     n = norm(line)
-    keywords = [
-        "remates totales", "tiros al arco", "corners", "tarjetas", "goles",
-        "ambos equipos", "resultado", "jugador", "goleador", "asistencias",
-        "pases", "tackles", "atajadas", "faltas", "fueras", "penal", "palo",
-        "primer tiempo", "segundo tiempo"
-    ]
+    keywords = ["remates totales", "tiros al arco", "corners", "tarjetas", "goles", "ambos equipos", "resultado",
+                "jugador", "goleador", "asistencias", "pases", "tackles", "atajadas", "faltas", "fueras", "penal", "palo",
+                "primer tiempo", "segundo tiempo"]
     return any(k in n for k in keywords)
-
 
 def parse_inline_over_under(line):
     pattern = r"\b(Más|Menos)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\b"
     return re.findall(pattern, line)
 
-
 def valid_line_for_market(market, scope, line_value):
     if line_value == "": return True
     x = float(line_value)
-    if market == "remates":
-        return 10 <= x <= 45 if scope == "total" else 5 <= x <= 35
-    if market == "tiros_al_arco":
-        return 3 <= x <= 20 if scope == "total" else 1.5 <= x <= 12
-    if market == "corners":
-        return 4.5 <= x <= 22 if scope == "total" else 0.5 <= x <= 15
-    if market == "tarjetas":
-        return 0.5 <= x <= 14 if scope == "total" else 0.5 <= x <= 8
-    if market == "goles":
-        return 0.5 <= x <= 8.5 if scope == "total" else 0.5 <= x <= 5.5
+    if market == "remates": return 10 <= x <= 45 if scope == "total" else 5 <= x <= 35
+    if market == "tiros_al_arco": return 3 <= x <= 20 if scope == "total" else 1.5 <= x <= 12
+    if market == "corners": return 4.5 <= x <= 22 if scope == "total" else 0.5 <= x <= 15
+    if market == "tarjetas": return 0.5 <= x <= 14 if scope == "total" else 0.5 <= x <= 8
+    if market == "goles": return 0.5 <= x <= 8.5 if scope == "total" else 0.5 <= x <= 5.5
     return True
 
-
 def add_row(rows, match, home, away, market, scope, side, line_value, odds):
-    if not valid_line_for_market(market, scope, line_value):
-        return
+    if not valid_line_for_market(market, scope, line_value): return
     rows.append({
-        "match": match,
-        "home": home or "",
-        "away": away or "",
-        "market": market,
-        "scope": scope,
-        "side": side,
-        "line": line_value,
-        "odds": float(odds),
+        "match": match, "home": home or "", "away": away or "",
+        "market": market, "scope": scope, "side": side, "line": line_value, "odds": float(odds),
     })
-
 
 def parse_single_match(lines, home, away):
     rows = []
@@ -654,15 +582,13 @@ def parse_single_match(lines, home, away):
         if current_market == "1x2" and line in {"1", "X", "2"}:
             if i + 1 < len(lines) and is_number(lines[i + 1]):
                 side_map = {"1": "home", "X": "draw", "2": "away"}
-                add_row(rows, f"{home} vs {away}", home, away, "1x2", "match",
-                        side_map[line], "", lines[i + 1])
+                add_row(rows, f"{home} vs {away}", home, away, "1x2", "match", side_map[line], "", lines[i + 1])
                 i += 2
                 continue
         if current_market and line in {"Más", "Menos"}:
             if i + 2 < len(lines) and is_number(lines[i + 1]) and is_number(lines[i + 2]):
                 side = "over" if line == "Más" else "under"
-                add_row(rows, f"{home} vs {away}", home, away, current_market, current_scope,
-                        side, float(lines[i + 1]), float(lines[i + 2]))
+                add_row(rows, f"{home} vs {away}", home, away, current_market, current_scope, side, float(lines[i + 1]), float(lines[i + 2]))
                 i += 3
                 continue
         if current_market:
@@ -670,20 +596,17 @@ def parse_single_match(lines, home, away):
             if inline_ou:
                 for side_raw, line_value, odds in inline_ou:
                     side = "over" if side_raw == "Más" else "under"
-                    add_row(rows, f"{home} vs {away}", home, away, current_market, current_scope,
-                            side, float(line_value), float(odds))
+                    add_row(rows, f"{home} vs {away}", home, away, current_market, current_scope, side, float(line_value), float(odds))
                 i += 1
                 continue
         if current_market == "btts" and line in {"Sí", "Si", "No"}:
             if i + 1 < len(lines) and is_number(lines[i + 1]):
                 side = "yes" if line in {"Sí", "Si"} else "no"
-                add_row(rows, f"{home} vs {away}", home, away, "btts", "total",
-                        side, "", lines[i + 1])
+                add_row(rows, f"{home} vs {away}", home, away, "btts", "total", side, "", lines[i + 1])
                 i += 2
                 continue
         i += 1
     return dedupe_and_sort(rows)
-
 
 def dedupe_and_sort(rows):
     best = {}
@@ -697,7 +620,6 @@ def dedupe_and_sort(rows):
     clean.sort(key=lambda r: (market_order.get(r["market"],99), scope_order.get(r["scope"],99),
                               float(r["line"]) if r["line"]!="" else -1, r["side"]))
     return clean
-
 
 def parse_betano_multimatch(raw_text):
     lines = clean_lines(raw_text)
@@ -722,8 +644,7 @@ def parse_betano_multimatch(raw_text):
 def make_trend_chart(df_sorted, serie, title, color):
     s = pd.to_numeric(serie, errors='coerce')
     valid = s.dropna()
-    if len(valid) < 4:
-        return None, s, pd.Series(False, index=s.index)
+    if len(valid) < 4: return None, s, pd.Series(False, index=s.index)
     mean_v = valid.mean(); std_v = valid.std()
     Q1, Q3 = valid.quantile(0.25), valid.quantile(0.75)
     IQR = Q3 - Q1
@@ -771,7 +692,6 @@ def make_trend_chart(df_sorted, serie, title, color):
         font=dict(color="white", size=11), height=260, margin=dict(l=5,r=100,t=48,b=30), showlegend=False,
     )
     return fig, s, is_out
-
 
 def display_variabilidad(df_filt, team_name, tiene):
     df_s = df_filt.sort_values("fecha").reset_index(drop=True)
@@ -836,12 +756,11 @@ def display_variabilidad(df_filt, team_name, tiene):
     if all_outliers:
         st.markdown("---")
         st.markdown("### ⚠️ Resumen de partidos atípicos")
-        st.caption("Puntos fuera del rango IQR × 1.5 — pasa el cursor sobre los diamantes rojos para ver el detalle.")
+        st.caption("Puntos fuera del rango IQR × 1.5")
         out_df = pd.DataFrame(all_outliers).drop_duplicates(subset=["Fecha","Rival","Métrica"])
         st.dataframe(out_df.style.map(lambda v: "color:#ef5350", subset=["Valor"]), use_container_width=True, hide_index=True)
     else:
         st.success("✅ No se detectaron partidos atípicos con los umbrales IQR × 1.5.")
-
 
 def over_chart(over_dict, title, color="#00e676", label_prefix="Over"):
     labels=[f"{label_prefix} {k}" for k in over_dict]
@@ -866,12 +785,10 @@ def over_chart(over_dict, title, color="#00e676", label_prefix="Over"):
     )
     return fig
 
-
 def display_caso(df_filt, team_name, es_visitante, tiene):
     if df_filt is None or df_filt.empty:
         st.warning("⚠️ Sin partidos en este contexto"); return
-    if es_visitante:
-        df_filt = swap_visitante(df_filt)
+    if es_visitante: df_filt = swap_visitante(df_filt)
     s = compute_stats(df_filt, tiene)
     if not s: return
     c1,c2,c3=st.columns(3)
@@ -886,8 +803,7 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
             if "Perdio" in str(val): return "color:#ef5350;font-weight:700"
             if "Empate" in str(val): return "color:#FFC107;font-weight:700"
             return ""
-        st.dataframe(match_df.style.map(color_res, subset=["Resultado"]),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(match_df.style.map(color_res, subset=["Resultado"]), use_container_width=True, hide_index=True)
     with st.expander("📊 Promedios por partido", expanded=False):
         avg_rows=[]
         for metrica,(hv,av) in s["avg"].items():
@@ -895,41 +811,31 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
             avg_rows.append({"Métrica":metrica, team_name[:22]:f"{hv:.2f}",
                              "Rival":f"{av:.2f}" if not np.isnan(av) else "N/D",
                              "Total":f"{hv+av:.2f}" if not np.isnan(av) else f"{hv:.2f}"})
-        if avg_rows:
-            st.dataframe(pd.DataFrame(avg_rows), use_container_width=True, hide_index=True)
+        if avg_rows: st.dataframe(pd.DataFrame(avg_rows), use_container_width=True, hide_index=True)
     st.markdown("---")
     col_izq, col_der = st.columns(2)
     with col_izq:
-        st.plotly_chart(over_chart(s["goles_total_over"],"⚽ Goles Totales Over","#4CAF50"),
-                        use_container_width=True, key=_ck())
+        st.plotly_chart(over_chart(s["goles_total_over"],"⚽ Goles Totales Over","#4CAF50"), use_container_width=True, key=_ck())
         if tiene["corners"] and "corn_total_over" in s:
-            st.plotly_chart(over_chart(s["corn_total_over"],"🔄 Córners Totales Over","#2196F3"),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(s["corn_total_over"],"🔄 Córners Totales Over","#2196F3"), use_container_width=True, key=_ck())
         if "cards_over" in s:
-            st.plotly_chart(over_chart(s["cards_over"],"🟨 Tarjetas Totales Over","#FF9800"),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(s["cards_over"],"🟨 Tarjetas Totales Over","#FF9800"), use_container_width=True, key=_ck())
         if "fouls_over" in s:
-            st.plotly_chart(over_chart(s["fouls_over"],"🦵 Faltas Totales Over","#795548"),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(s["fouls_over"],"🦵 Faltas Totales Over","#795548"), use_container_width=True, key=_ck())
     with col_der:
         goles_det={**{f"EQ Over {k}":v for k,v in s["goles_home_over"].items()},
                    **{f"Rv Over {k}":v for k,v in s["goles_away_over"].items()}}
-        st.plotly_chart(over_chart(goles_det,"⚽ Goles EQ / Rival detalle","#81C784",label_prefix=""),
-                        use_container_width=True, key=_ck())
+        st.plotly_chart(over_chart(goles_det,"⚽ Goles EQ / Rival detalle","#81C784",label_prefix=""), use_container_width=True, key=_ck())
         if tiene["remates"] and "sot_over" in s:
-            st.plotly_chart(over_chart(s["sot_over"],"🎯 Remates al Arco Over","#9C27B0"),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(s["sot_over"],"🎯 Remates al Arco Over","#9C27B0"), use_container_width=True, key=_ck())
         if tiene["remates"] and "shots_over" in s:
-            st.plotly_chart(over_chart(s["shots_over"],"💥 Remates Totales Over","#00BCD4"),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(s["shots_over"],"💥 Remates Totales Over","#00BCD4"), use_container_width=True, key=_ck())
         if tiene["atajadas"] and "saves_over" in s:
-            st.plotly_chart(over_chart(s["saves_over"],"🧤 Atajadas Over","#607D8B"),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(s["saves_over"],"🧤 Atajadas Over","#607D8B"), use_container_width=True, key=_ck())
         if tiene["corners"] and "corn_home_over" in s:
             corn_det={**{f"EQ Over {k}":v for k,v in s["corn_home_over"].items()},
                       **{f"Rv Over {k}":v for k,v in s["corn_away_over"].items()}}
-            st.plotly_chart(over_chart(corn_det,"🔄 Córners EQ / Rival detalle","#64B5F6",label_prefix=""),
-                            use_container_width=True, key=_ck())
+            st.plotly_chart(over_chart(corn_det,"🔄 Córners EQ / Rival detalle","#64B5F6",label_prefix=""), use_container_width=True, key=_ck())
     if tiene["cuotas"] and "odd_h" in s:
         st.markdown("---")
         st.markdown("**💰 Cuotas promedio B365 en estos partidos**")
@@ -1036,7 +942,7 @@ def copy_all_button(all_data):
 
 
 # ══════════════════════════════════════════════════════════════
-# SIDEBAR (UNIFICADO)
+# SIDEBAR
 # ══════════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -1108,8 +1014,7 @@ with st.sidebar:
                 st.session_state.batch_pairs = []
                 st.rerun()
 
-        # Betano texto multi‑partido
-        raw_betano_batch = st.text_area("Pega aquí el texto COMPLETO de Betano (varios partidos)", height=150, key="batch_betano")
+        # Sin área de Betano en sidebar; se pondrá en main.
         analizar = st.button("🔍 Analizar lote", type="primary", use_container_width=True)
 
 
@@ -1143,18 +1048,28 @@ else:
     if not partidos:
         st.warning("No agregaste ningún partido a la lista."); st.stop()
 
-# Parseo de cuotas Betano según modo
-cuotas_por_partido = {}
-if modo_lote and raw_betano_batch.strip():
-    cuotas_por_partido = parse_betano_multimatch(raw_betano_batch)
-    if cuotas_por_partido:
-        st.success(f"Se encontraron cuotas para {len(cuotas_por_partido)} partidos en el texto.")
-    else:
-        st.warning("No se encontraron cuotas en el texto pegado.")
+# ─── SECCIÓN DE CUOTAS BETANO (SIEMPRE AL INICIO) ───
+with st.expander("💰 Parsear cuotas Betano (opcional)", expanded=False):
+    raw_betano = st.text_area("Pega aquí el texto de Betano (puede contener varios partidos)", height=150,
+                              key="betano_main")
+    if st.button("🔄 Parsear cuotas"):
+        if raw_betano.strip():
+            parsed = parse_betano_multimatch(raw_betano)
+            st.session_state["cuotas_parsed"] = parsed
+            if parsed:
+                st.success(f"✅ Se encontraron cuotas para {len(parsed)} partidos.")
+            else:
+                st.warning("⚠️ No se encontraron cuotas.")
+        else:
+            st.warning("Pega el texto primero.")
 
-all_copy_data = []
+cuotas_global = st.session_state.get("cuotas_parsed", {})
+
+# ─── PREPARAR DATOS DE TODOS LOS PARTIDOS (PARA COPIAR Y MOSTRAR) ───
+matches_info = []      # contendrá dicts con toda la info para mostrar
+all_copy_data = []      # lista para el botón copiar
+
 for HOME_TEAM, AWAY_TEAM in partidos:
-    st.markdown("---")
     home_pts = int(standings.loc[HOME_TEAM,"PTS"]); away_pts = int(standings.loc[AWAY_TEAM,"PTS"])
     home_pos = int(standings.loc[HOME_TEAM,"Pos"]); away_pos = int(standings.loc[AWAY_TEAM,"Pos"])
     diff_pts = home_pts - away_pts
@@ -1168,12 +1083,6 @@ for HOME_TEAM, AWAY_TEAM in partidos:
         contexto = "REÑIDO"; ctx_class = "renido"; ctx_emoji = "⚔️"
         ctx_txt = f"Partido REÑIDO — {HOME_TEAM} {home_pts}pts vs {AWAY_TEAM} {away_pts}pts (diff {diff_pts:+d})"
     contexto_v = {"FAVORITO":"UNDERDOG","UNDERDOG":"FAVORITO","REÑIDO":"REÑIDO"}[contexto]
-
-    ch,cv_col,ca = st.columns([5,1,5])
-    with ch: st.markdown(f"### 🏠 {HOME_TEAM}"); st.caption(f"#{home_pos} · {home_pts} pts")
-    with cv_col: st.markdown("### vs")
-    with ca:   st.markdown(f"### ✈️ {AWAY_TEAM}"); st.caption(f"#{away_pos} · {away_pts} pts")
-    st.markdown(f'<div class="ctx-badge {ctx_class}">{ctx_emoji} {ctx_txt}</div>', unsafe_allow_html=True)
 
     df_c1 = df[df["home"]==HOME_TEAM].copy()
     df_c3 = df[df["away"]==AWAY_TEAM].copy()
@@ -1200,67 +1109,29 @@ for HOME_TEAM, AWAY_TEAM in partidos:
     ctx_label = {"FAVORITO":f"⭐ Fav.(≥{UMBRAL}pts)","UNDERDOG":f"💪 Underdog(≥{UMBRAL}pts)","REÑIDO":f"⚔️ Reñido(<{UMBRAL}pts)"}
     ctx_v_label = {"FAVORITO":f"⭐ Fav.V(≥{UMBRAL}pts)","UNDERDOG":f"💪 UnderdogV(≥{UMBRAL}pts)","REÑIDO":f"⚔️ ReñidoV(<{UMBRAL}pts)"}
 
-    # Determinar cuotas para este partido (según modo)
+    # Cuotas Betano para este partido desde el parseo global
     cuotas_df_partido = None
-    if modo_lote:
-        match_key = f"{HOME_TEAM} vs {AWAY_TEAM}"
-        limpia = lambda t: norm(t)
-        for key, odds in cuotas_por_partido.items():
-            hc, ac = key.split(" vs ")
-            if limpia(hc) == limpia(HOME_TEAM) and limpia(ac) == limpia(AWAY_TEAM):
-                cuotas_df_partido = pd.DataFrame(odds)
-                break
-    else:
-        # Modo individual: sección de cuotas Betano se maneja con un expander y un parseo ad-hoc
-        cuotas_df_partido = None  # se llenará si el usuario parsea en el expander
+    match_key = f"{HOME_TEAM} vs {AWAY_TEAM}"
+    limpia = lambda t: norm(t)
+    for key, odds in cuotas_global.items():
+        hc, ac = key.split(" vs ")
+        if limpia(hc) == limpia(HOME_TEAM) and limpia(ac) == limpia(AWAY_TEAM):
+            cuotas_df_partido = pd.DataFrame(odds)
+            break
 
-    # Mostrar análisis en un expander (si son varios partidos, colapsado por defecto)
-    with st.expander(f"📈 Análisis {HOME_TEAM} vs {AWAY_TEAM}", expanded=(len(partidos)==1)):
-        tab1,tab2,tab3,tab4 = st.tabs([
-            f"🏠 {HOME_TEAM[:14]} LOCAL  (general, {len(df_c1)}pj)",
-            f"🏠 {HOME_TEAM[:14]} LOCAL  {ctx_label[contexto]}  ({len(df_c2)}pj)",
-            f"✈️ {AWAY_TEAM[:14]} VISITA (general, {len(df_c3)}pj)",
-            f"✈️ {AWAY_TEAM[:14]} VISITA {ctx_v_label[contexto_v]} ({len(df_c4)}pj)",
-        ])
-        with tab1: display_caso(df_c1, HOME_TEAM, False, tiene)
-        with tab2: display_caso(df_c2, HOME_TEAM, False, tiene)
-        with tab3: display_caso(df_c3, AWAY_TEAM, True,  tiene)
-        with tab4: display_caso(df_c4, AWAY_TEAM, True,  tiene)
+    # Guardar para mostrar y para copiar
+    match_dict = {
+        "home": HOME_TEAM, "away": AWAY_TEAM,
+        "home_pts": home_pts, "away_pts": away_pts,
+        "home_pos": home_pos, "away_pos": away_pos,
+        "ctx_emoji": ctx_emoji, "ctx_txt": ctx_txt, "ctx_class": ctx_class,
+        "df_c1": df_c1, "df_c2": df_c2, "df_c3": df_c3, "df_c4": df_c4,
+        "ctx_label": ctx_label, "ctx_v_label": ctx_v_label,
+        "cuotas_df": cuotas_df_partido
+    }
+    matches_info.append(match_dict)
 
-        if not modo_lote:
-            # Expander para pegar cuotas Betano individual
-            with st.expander("💰 Cuotas Betano (opcional)", expanded=False):
-                raw_betano = st.text_area(
-                    "Pega aquí el texto de Betano para este partido",
-                    height=120, key=f"betano_{HOME_TEAM}_{AWAY_TEAM}"
-                )
-                if st.button("🔄 Parsear cuotas", key=f"parse_{HOME_TEAM}_{AWAY_TEAM}"):
-                    if raw_betano.strip():
-                        parsed = parse_betano_multimatch(raw_betano)
-                        # Buscar el partido que coincida
-                        found = False
-                        limpia = lambda t: norm(t)
-                        for key, odds in parsed.items():
-                            hc, ac = key.split(" vs ")
-                            if limpia(hc) == limpia(HOME_TEAM) and limpia(ac) == limpia(AWAY_TEAM):
-                                st.session_state[f"cuotas_{HOME_TEAM}_{AWAY_TEAM}"] = pd.DataFrame(odds)
-                                found = True
-                                break
-                        if not found:
-                            st.warning("No se encontraron cuotas para este partido en el texto pegado.")
-                    else:
-                        st.warning("Pega el texto primero.")
-                if f"cuotas_{HOME_TEAM}_{AWAY_TEAM}" in st.session_state:
-                    cuotas_df_partido = st.session_state[f"cuotas_{HOME_TEAM}_{AWAY_TEAM}"]
-                    st.dataframe(cuotas_df_partido, use_container_width=True, hide_index=True)
-        else:
-            # Modo lote: mostrar cuotas ya parseadas
-            if cuotas_df_partido is not None:
-                st.markdown("---")
-                st.subheader("💰 Cuotas Betano para este partido")
-                st.dataframe(cuotas_df_partido, use_container_width=True, hide_index=True)
-
-    # Acumular para copiar todo
+    # Acumular para botón copiar
     for titulo, df_case, team, es_vis in [
         (f"{HOME_TEAM} LOCAL — general", df_c1, HOME_TEAM, False),
         (f"{HOME_TEAM} LOCAL — {ctx_label[contexto]}", df_c2, HOME_TEAM, False),
@@ -1269,10 +1140,36 @@ for HOME_TEAM, AWAY_TEAM in partidos:
     ]:
         all_copy_data.append((titulo, df_case, team, es_vis, cuotas_df_partido))
 
+# ─── BOTÓN COPIAR TODO (AL INICIO) ───
 if partidos:
-    st.markdown("---")
-    st.markdown("### 📋 Copiar todo el análisis")
     copy_all_button(all_copy_data)
 
+# ─── MOSTRAR CADA PARTIDO ───
+for m in matches_info:
+    st.markdown("---")
+    ch,cv_col,ca = st.columns([5,1,5])
+    with ch: st.markdown(f"### 🏠 {m['home']}"); st.caption(f"#{m['home_pos']} · {m['home_pts']} pts")
+    with cv_col: st.markdown("### vs")
+    with ca:   st.markdown(f"### ✈️ {m['away']}"); st.caption(f"#{m['away_pos']} · {m['away_pts']} pts")
+    st.markdown(f'<div class="ctx-badge {m["ctx_class"]}">{m["ctx_emoji"]} {m["ctx_txt"]}</div>', unsafe_allow_html=True)
+
+    with st.expander(f"📈 Análisis {m['home']} vs {m['away']}", expanded=(len(partidos)==1)):
+        tab1,tab2,tab3,tab4 = st.tabs([
+            f"🏠 {m['home'][:14]} LOCAL  (general, {len(m['df_c1'])}pj)",
+            f"🏠 {m['home'][:14]} LOCAL  {m['ctx_label'][contexto]}  ({len(m['df_c2'])}pj)",
+            f"✈️ {m['away'][:14]} VISITA (general, {len(m['df_c3'])}pj)",
+            f"✈️ {m['away'][:14]} VISITA {m['ctx_v_label'][contexto_v]} ({len(m['df_c4'])}pj)",
+        ])
+        with tab1: display_caso(m['df_c1'], m['home'], False, tiene)
+        with tab2: display_caso(m['df_c2'], m['home'], False, tiene)
+        with tab3: display_caso(m['df_c3'], m['away'], True,  tiene)
+        with tab4: display_caso(m['df_c4'], m['away'], True,  tiene)
+
+        if m['cuotas_df'] is not None:
+            st.markdown("---")
+            st.subheader("💰 Cuotas Betano para este partido")
+            st.dataframe(m['cuotas_df'], use_container_width=True, hide_index=True)
+
+# Estadísticas de liga al final
 with st.expander("📊 Estadísticas comparativas de la liga", expanded=False):
     display_liga_stats(df, standings, tiene, data_path)
