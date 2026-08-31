@@ -108,7 +108,9 @@ def normalizar_df(df, es_nuevo):
         for src, dst in col_map.items():
             out[dst] = df[src] if src in df.columns else np.nan
         if "fecha" in out.columns:
-            out["fecha"] = pd.to_datetime(out["fecha"], dayfirst=True, errors="coerce")
+            # Nuestros CSVs propios (Sofascore) ya vienen en formato ISO YYYY-MM-DD,
+            # que es inambiguo. NO usar dayfirst=True aca: puede invertir mes/dia.
+            out["fecha"] = pd.to_datetime(out["fecha"], format="%Y-%m-%d", errors="coerce")
         for col in ["odd_h","odd_d","odd_a","odd_o25","odd_u25","odd_ahh","odd_aha","ah_line"]:
             out[col] = np.nan
     return out
