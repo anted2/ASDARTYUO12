@@ -103,7 +103,18 @@ def normalizar_df(df, es_nuevo):
         for src, dst in col_map.items():
             out[dst] = df[src] if src in df.columns else np.nan
         if "fecha" in out.columns:
-            out["fecha"] = pd.to_datetime(out["fecha"], dayfirst=True, errors="coerce")
+            # Parseo flexible: nuestros CSVs propios (Sofascore) nacen en ISO
+            # YYYY-MM-DD, pero si el archivo se abrio y se re-guardo en Excel,
+            # las fechas quedan en formato DD/MM/YYYY. Probamos ambos formatos
+            # explicitos (nunca dayfirst=True "adivinando", que es lo que
+            # causaba el mes/dia invertido).
+            fechas_iso = pd.to_datetime(out["fecha"], format="%Y-%m-%d", errors="coerce")
+            faltantes = fechas_iso.isna() & out["fecha"].notna()
+            if faltantes.any():
+                fechas_iso.loc[faltantes] = pd.to_datetime(
+                    out["fecha"][faltantes], format="%d/%m/%Y", errors="coerce"
+                )
+            out["fecha"] = fechas_iso
         for col in ["odd_h","odd_d","odd_a","odd_o25","odd_u25","odd_ahh","odd_aha","ah_line"]:
             out[col] = np.nan
     return out
