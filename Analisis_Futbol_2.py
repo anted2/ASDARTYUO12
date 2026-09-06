@@ -1616,6 +1616,58 @@ if "cuotas_rows" in st.session_state and st.session_state["cuotas_rows"]:
 
 copy_all_button(casos, tiene, cuotas_df=cuotas_final)
 
+
+#--------------------------------------------------------------------------
+from probabilidad_lineas import evaluar_cuotas, mejor_linea_por_partido, armar_combinada
+
+# ── Guardamos varios partidos en session_state para poder combinarlos ──
+if "ranking_partidos" not in st.session_state:
+    st.session_state["ranking_partidos"] = []   # lista de DataFrames de ranking
+
+with st.expander("🎯 Analizar Probabilidades (goles / remates / arco / córners)", expanded=True):
+    if cuotas_final is None or cuotas_final.empty:
+        st.info("Primero pegá y parseá las cuotas de Betano arriba.")
+    else:
+        # elegís qué historial usar como "local" y "visita" para este partido:
+        # df_c2 (local con contexto) si tiene partidos, si no df_c1 (local general)
+        df_home_use = df_c2 if not df_c2.empty else df_c1
+        df_away_use = swap_visitante(df_c4) if not df_c4.empty else swap_visitante(df_c3)
+
+        if st.button("🔍 Calcular probabilidades de este partido"):
+            ranking = evaluar_cuotas(
+                df_home_use, df_away_use, cuotas_final,
+                match_label=f"{HOME_TEAM} vs {AWAY_TEAM}"
+            )
+            st.session_state["ranking_actual"] = ranking
+
+        ranking = st.session_state.get("ranking_actual")
+        if ranking is not None and not ranking.empty:
+            st.markdown("#### 📊 Todas las líneas — ordenadas de mayor a menor probabilidad histórica")
+            st.dataframe(ranking, use_container_width=True, hide_index=True)
+
+            if st.button("➕ Agregar este partido a la combinada"):
+                st.session_state["ranking_partidos"].append(ranking)
+                st.success(f"Agregado. Llevás {len(st.session_state['ranking_partidos'])} partido(s) en la combinada.")
+
+    # ── Combinada con todos los partidos agregados ──
+    if st.session_state["ranking_partidos"]:
+        st.markdown("---")
+        st.markdown(f"#### 🧩 Combinada ({len(st.session_state['ranking_partidos'])} partidos)")
+        todo = pd.concat(st.session_state["ranking_partidos"], ignore_index=True)
+        mejores = mejor_linea_por_partido(todo)
+        st.dataframe(mejores, use_container_width=True, hide_index=True)
+
+        combinada = armar_combinada(mejores)
+        if combinada:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Cuota combinada", f"{combinada['cuota_combinada']}")
+            c2.metric("Prob. histórica combinada", f"{combinada['probabilidad_combinada_%']}%")
+            c3.metric("Valor estimado", f"{combinada['valor_estimado_%']}%")
+
+        if st.button("🗑️ Vaciar combinada"):
+            st.session_state["ranking_partidos"] = []
+            st.rerun()
+
 # ── Liga stats colapsable ────────────────────────────────────
 with st.expander("📊 Estadísticas comparativas de la liga", expanded=False):
     display_liga_stats(df, standings, tiene, data_path)
