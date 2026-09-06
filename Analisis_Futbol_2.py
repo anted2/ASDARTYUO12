@@ -978,6 +978,60 @@ def copy_all_button(casos_data, tiene, cuotas_df=None):
 
 
 # ══════════════════════════════════════════════════════════════
+# BOTÓN COPIAR UNA SOLA TABLA (simple, para un solo caso/vista)
+# ══════════════════════════════════════════════════════════════
+
+def copy_single_button(match_df, label="Copiar esta tabla"):
+    """
+    Copia UNA sola tabla (la que se le pase) al portapapeles en formato TSV,
+    lista para pegar en Excel o Google Sheets. Igual de simple que el botón
+    de "Copiar todo", pero para un único caso (ej: Local general).
+    """
+    if match_df is None or match_df.empty:
+        st.caption("Sin datos para copiar en este contexto.")
+        return
+
+    csv_text = match_df.to_csv(sep="\t", index=False)
+
+    # Escapar para JS template literal
+    safe = (csv_text
+            .replace("\\", "\\\\")
+            .replace("`",  "\\`")
+            .replace("$",  "\\$"))
+
+    btn_id = f"cpbtn_{_ck()}"
+
+    components.html(f"""
+    <button id="{btn_id}" onclick="
+        navigator.clipboard.writeText(`{safe}`)
+          .then(()=>{{
+            document.getElementById('{btn_id}').innerText = '✅  ¡Copiado! — pega en Excel o Google Sheets';
+            setTimeout(()=>{{
+              document.getElementById('{btn_id}').innerText = '📋  {label}';
+            }}, 2500);
+          }})
+          .catch(()=>alert('No se pudo copiar automáticamente.\\nUsa Chrome o Edge para que funcione el portapapeles.'));
+    " style="
+        width:100%;
+        padding:10px 0;
+        border:none;
+        border-radius:8px;
+        cursor:pointer;
+        background:linear-gradient(135deg,#00e676,#1de9b6);
+        color:#000;
+        font-weight:700;
+        font-size:0.95rem;
+        letter-spacing:.2px;
+        margin-top:6px;
+        transition:opacity .2s;
+    "
+    onmouseover="this.style.opacity='.85'"
+    onmouseout="this.style.opacity='1'"
+    >📋  {label}</button>
+    """, height=52)
+
+
+# ══════════════════════════════════════════════════════════════
 # GRÁFICO DE TENDENCIA / ATÍPICOS
 # ══════════════════════════════════════════════════════════════
 
@@ -1202,6 +1256,8 @@ def display_caso(df_filt, team_name, es_visitante, tiene):
             return ""
         st.dataframe(match_df.style.map(color_res, subset=["Resultado"]),
                      use_container_width=True, hide_index=True)
+        # ── Botón simple: copiar SOLO esta tabla (esta vista) ──
+        copy_single_button(match_df, label=f"Copiar tabla — {team_name}")
 
     with st.expander("📊 Promedios por partido", expanded=False):
         avg_rows=[]
