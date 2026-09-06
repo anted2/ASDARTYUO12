@@ -1630,8 +1630,8 @@ with st.expander("🎯 Analizar Probabilidades (goles / remates / arco / córner
     else:
         # elegís qué historial usar como "local" y "visita" para este partido:
         # df_c2 (local con contexto) si tiene partidos, si no df_c1 (local general)
-        df_home_use = df_c2 if not df_c2.empty else df_c1
-        df_away_use = swap_visitante(df_c4) if not df_c4.empty else swap_visitante(df_c3)
+        df_home_use = df_c1
+        df_away_use = df_c3
 
         if st.button("🔍 Calcular probabilidades de este partido"):
             ranking = evaluar_cuotas(
