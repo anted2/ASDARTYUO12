@@ -708,7 +708,7 @@ def should_reset_market(line, home, away):
 
 
 def parse_inline_over_under(line):
-    pattern = r"\b(Más|Menos)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\b"
+    pattern = r"\b(Más(?:\s+de)?|Menos)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\b"
     return re.findall(pattern, line)
 
 
@@ -812,9 +812,9 @@ def parse_betano_text(raw_text):
                 continue
 
         # Over/Under en tres líneas
-        if current_market and line in {"Más", "Menos"}:
+        if current_market and line in {"Más", "Más de", "Menos"}:
             if i + 2 < len(lines) and is_number(lines[i + 1]) and is_number(lines[i + 2]):
-                side = "over" if line == "Más" else "under"
+                side = "over" if line.startswith("Más") else "under"
                 line_value = float(lines[i + 1])
                 odds = float(lines[i + 2])
 
@@ -833,7 +833,7 @@ def parse_betano_text(raw_text):
 
             if inline_ou:
                 for side_raw, line_value, odds in inline_ou:
-                    side = "over" if side_raw == "Más" else "under"
+                    side = "over" if side_raw.startswith("Más") else "under"
 
                     add_row(
                         rows, match, home, away,
